@@ -1,0 +1,2072 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QUANT TERMINAL v3</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
+<style>
+:root{
+  --bg0:#07090d;--bg1:#0c1016;--bg2:#10161e;--bg3:#141c26;--bg4:#19222e;--bg5:#1f2a38;
+  --b0:rgba(88,140,200,.07);--b1:rgba(88,140,200,.12);--b2:rgba(88,140,200,.22);--b3:rgba(88,140,200,.38);
+  --t1:#c8d8e8;--t2:#8898ac;--t3:#506070;--t4:#344050;
+  --acc:#3d90f5;--acc2:rgba(61,144,245,.1);--acc3:rgba(61,144,245,.2);
+  --grn:#2ecc71;--grn2:rgba(46,204,113,.1);--grn3:rgba(46,204,113,.25);
+  --red:#e74c3c;--red2:rgba(231,76,60,.1);--red3:rgba(231,76,60,.25);
+  --gld:#f39c12;--gld2:rgba(243,156,18,.1);--gld3:rgba(243,156,18,.25);
+  --pur:#9b59b6;--tel:#1abc9c;--pnk:#e91e8c;
+  --mono:'JetBrains Mono',monospace;
+  --sans:'Noto Sans SC',sans-serif;
+  --r:4px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg0);color:var(--t1);font-family:var(--sans);font-size:13px;line-height:1.6;user-select:none}
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.02) 3px,rgba(0,0,0,.02) 6px);pointer-events:none;z-index:9000}
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px}
+
+/* ── TOPBAR ── */
+.tb{height:46px;background:rgba(7,9,13,.95);border-bottom:1px solid var(--b1);backdrop-filter:blur(20px);display:flex;align-items:center;padding:0 18px;position:sticky;top:0;z-index:500;flex-shrink:0}
+.logo{font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:.12em;color:var(--acc);margin-right:24px;display:flex;align-items:center;gap:8px}
+.logo-pulse{width:7px;height:7px;border-radius:50%;background:var(--grn);box-shadow:0 0 8px var(--grn);animation:pulse 2.2s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.8)}}
+.tabs{display:flex;height:100%}
+.tab{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--t3);padding:0 14px;cursor:pointer;display:flex;align-items:center;border-bottom:2px solid transparent;transition:.18s;text-transform:uppercase;white-space:nowrap}
+.tab:hover{color:var(--t2)}.tab.on{color:var(--acc);border-bottom-color:var(--acc)}
+.tr{margin-left:auto;display:flex;align-items:center;gap:10px}
+.api-st{font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:3px;cursor:pointer;border:1px solid;transition:.15s}
+.api-st.ok {color:var(--grn);border-color:var(--grn3);background:var(--grn2)}
+.api-st.err{color:var(--red);border-color:var(--red3);background:var(--red2)}
+.api-st.chk{color:var(--t3);border-color:var(--b1);background:var(--bg3)}
+#clk{font-family:var(--mono);font-size:11px;color:var(--t3)}
+
+/* ── LAYOUT ── */
+.app{display:flex;height:calc(100vh - 46px);overflow:hidden}
+.sb{width:252px;flex-shrink:0;background:var(--bg1);border-right:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden}
+.main{flex:1;overflow-y:auto;background:var(--bg0);position:relative}
+
+/* ── SIDEBAR ── */
+.sb-s{padding:11px 13px;border-bottom:1px solid var(--b1)}
+.lbl{font-family:var(--mono);font-size:9px;letter-spacing:.12em;color:var(--t3);text-transform:uppercase;margin-bottom:7px}
+.inp-row{display:flex;gap:5px}
+.inp{background:var(--bg2);border:1px solid var(--b1);border-radius:var(--r);color:var(--t1);font-family:var(--mono);font-size:12px;padding:7px 10px;outline:none;transition:.18s;width:100%}
+.inp:focus{border-color:var(--acc)}.inp::placeholder{color:var(--t3)}
+.btn{background:var(--acc);border:none;border-radius:var(--r);color:#fff;font-family:var(--mono);font-size:11px;padding:7px 12px;cursor:pointer;transition:.15s;white-space:nowrap;font-weight:500}
+.btn:hover{opacity:.82}.btn:disabled{opacity:.4;cursor:default}
+.type-row{display:flex;gap:4px;margin-top:7px}
+.tt{flex:1;text-align:center;font-family:var(--mono);font-size:10px;padding:4px;border-radius:3px;cursor:pointer;border:1px solid var(--b1);color:var(--t3);transition:.15s}
+.tt:hover{color:var(--t2)}.tt.on{border-color:var(--acc);color:var(--acc);background:var(--acc2)}
+.wl{flex:1;overflow-y:auto}
+.wi{padding:9px 13px;border-bottom:1px solid rgba(88,140,200,.05);cursor:pointer;transition:background .12s;position:relative}
+.wi:hover{background:var(--bg2)}.wi.on{background:var(--acc2);border-left:2px solid var(--acc)}
+.wi-r1{display:flex;justify-content:space-between;align-items:flex-start;gap:4px}
+.wi-nm{font-size:12px;font-weight:500;flex:1;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wi-px{font-family:var(--mono);font-size:13px;font-weight:600}
+.wi-r2{display:flex;justify-content:space-between;align-items:center;margin-top:2px}
+.wi-cd{font-family:var(--mono);font-size:10px;color:var(--t3)}
+.wi-chg{font-family:var(--mono);font-size:11px}
+.wi-act{display:flex;align-items:center;gap:6px}
+.wi-del{width:18px;height:18px;border:1px solid transparent;border-radius:3px;background:transparent;color:var(--t4);font-family:var(--mono);font-size:13px;line-height:16px;cursor:pointer;opacity:0;transition:.15s}
+.wi:hover .wi-del{opacity:1}
+.wi-del:hover{color:var(--red);border-color:var(--red3);background:var(--red2)}
+.sdot{width:6px;height:6px;border-radius:50%}
+.sdot.buy{background:var(--grn)}.sdot.hold{background:var(--gld)}.sdot.sell{background:var(--red)}
+.up{color:var(--red)}.dn{color:var(--grn)}.neu{color:var(--gld)}
+
+.sb-mf{padding:10px 13px;border-top:1px solid var(--b1)}
+
+/* ── HEADER / METRIC STRIP ── */
+.fhd{background:var(--bg1);border-bottom:1px solid var(--b1);padding:12px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.fhd-l{flex:1;min-width:0}
+.fn{font-size:17px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fsub{font-family:var(--mono);font-size:10px;color:var(--t3);margin-top:2px;display:flex;align-items:center;gap:8px}
+.src-tag{font-size:9px;padding:1px 5px;border-radius:2px;background:var(--acc2);color:var(--acc);border:1px solid var(--acc3)}
+.px-blk{text-align:right}
+.px-big{font-family:var(--mono);font-size:28px;font-weight:300;letter-spacing:-.02em}
+.px-chg{font-family:var(--mono);font-size:11px;margin-top:1px}
+.rpills{display:flex;gap:2px;background:var(--bg2);border-radius:3px;padding:2px}
+.rp{font-family:var(--mono);font-size:11px;color:var(--t3);padding:3px 9px;border-radius:2px;cursor:pointer;border:none;background:none;transition:.15s}
+.rp:hover{color:var(--t2)}.rp.on{background:var(--bg4);color:var(--acc)}
+
+.mstrip{display:flex;background:var(--bg1);border-bottom:1px solid var(--b1);overflow-x:auto;flex-shrink:0}
+.mstrip::-webkit-scrollbar{display:none}
+.ms{padding:8px 16px;border-right:1px solid var(--b0);flex-shrink:0}
+.ms-l{font-family:var(--mono);font-size:9px;letter-spacing:.09em;color:var(--t3);text-transform:uppercase}
+.ms-v{font-family:var(--mono);font-size:13px;font-weight:500;margin-top:1px}
+.c-pos{color:var(--red)}.c-neg{color:var(--grn)}.c-neu{color:var(--gld)}.c-acc{color:var(--acc)}.c-pur{color:var(--pur)}.c-tel{color:var(--tel)}
+
+/* ── GRID / PANEL ── */
+.g{display:grid;gap:1px;background:var(--b0)}
+.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}
+.g31{grid-template-columns:3fr 1fr}.g21{grid-template-columns:2fr 1fr}
+.g13{grid-template-columns:1fr 3fr}
+@media(max-width:1100px){.g2,.g3,.g31,.g21,.g13{grid-template-columns:1fr}}
+.pnl{background:var(--bg1);display:flex;flex-direction:column}
+.ph{padding:10px 15px 0;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.pt{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--t3);text-transform:uppercase}
+.pb{padding:10px 15px 14px;flex:1}
+.cw{position:relative;width:100%}
+
+/* ── SIGNAL CARD ── */
+.sigc{border-radius:var(--r);padding:10px 12px;display:flex;gap:10px;margin-bottom:9px}
+.sigc.buy{background:var(--grn2);border:1px solid var(--grn3)}
+.sigc.hold{background:var(--gld2);border:1px solid var(--gld3)}
+.sigc.sell{background:var(--red2);border:1px solid var(--red3)}
+.sic{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;font-weight:700}
+.sic.buy{background:rgba(46,204,113,.2);color:var(--grn)}
+.sic.hold{background:rgba(243,156,18,.2);color:var(--gld)}
+.sic.sell{background:rgba(231,76,60,.2);color:var(--red)}
+.sit{font-size:13px;font-weight:700}
+.sit.buy{color:var(--grn)}.sit.hold{color:var(--gld)}.sit.sell{color:var(--red)}
+.sid{font-size:11px;color:var(--t2);margin-top:2px;line-height:1.5}
+
+/* ── DATA ROWS ── */
+.dr{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(88,140,200,.05)}
+.dr:last-child{border-bottom:none}
+.dl{font-size:12px;color:var(--t3)}.dv{font-family:var(--mono);font-size:12px}
+
+/* ── POSITION BAR ── */
+.pgauge{display:flex;align-items:center;gap:9px;margin:7px 0}
+.pgbar{flex:1;height:7px;background:var(--bg4);border-radius:3px;overflow:hidden}
+.pgfill{height:100%;border-radius:3px;transition:width .7s ease}
+.pgfill.low{background:linear-gradient(90deg,var(--grn),#27ae60)}
+.pgfill.mid{background:linear-gradient(90deg,#27ae60,var(--gld))}
+.pgfill.high{background:linear-gradient(90deg,var(--gld),var(--red))}
+.pgpct{font-family:var(--mono);font-size:16px;font-weight:600;min-width:42px;text-align:right}
+
+/* ── PERCENTILE BAR ── */
+.pctbar{margin:4px 0 9px}
+.pctbar-hd{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--t3);margin-bottom:3px}
+.pctbar-tr{height:4px;background:var(--bg4);border-radius:2px;overflow:hidden;position:relative}
+.pctbar-fill{height:100%;border-radius:2px;transition:width .8s ease}
+.pf-low {background:linear-gradient(90deg,var(--grn),#3498db)}
+.pf-mid {background:linear-gradient(90deg,#3498db,var(--gld))}
+.pf-high{background:linear-gradient(90deg,var(--gld),var(--red))}
+.pct-v{font-family:var(--mono);font-size:11px;font-weight:600}
+
+/* ── SCORE RING ── */
+.sring-wrap{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+.ring-svg-wrap{position:relative;width:70px;height:70px;flex-shrink:0}
+.ring-svg-wrap svg{transform:rotate(-90deg)}
+.ring-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none}
+.ring-n{font-family:var(--mono);font-size:18px;font-weight:700;line-height:1}
+.ring-m{font-family:var(--mono);font-size:9px;color:var(--t3)}
+.dim-row{margin-bottom:4px}
+.dim-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--t2);margin-bottom:2px}
+.dim-bar{height:3px;background:var(--bg4);border-radius:2px;overflow:hidden}
+.dim-fill{height:100%;border-radius:2px;transition:width .6s}
+
+/* ── QUANT CARDS ── */
+.qgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+@media(max-width:1200px){.qgrid{grid-template-columns:1fr 1fr}}
+.qcard{background:var(--bg2);border:1px solid var(--b1);border-radius:var(--r);padding:11px 13px}
+.qcard-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
+.qcard-t{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--t3);text-transform:uppercase}
+.grade{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:2px;font-weight:600}
+.gr-A{background:var(--grn2);color:var(--grn);border:1px solid var(--grn3)}
+.gr-B{background:var(--acc2);color:var(--acc);border:1px solid var(--acc3)}
+.gr-C{background:var(--gld2);color:var(--gld);border:1px solid var(--gld3)}
+.gr-D{background:var(--red2);color:var(--red);border:1px solid var(--red3)}
+.gr-NA{background:var(--bg3);color:var(--t3);border:1px solid var(--b1)}
+.qcard-v{font-family:var(--mono);font-size:22px;font-weight:600;line-height:1.1}
+.qcard-sub{font-size:11px;color:var(--t2);margin-top:4px;line-height:1.4}
+.qcard-exp{font-size:10px;color:var(--t3);margin-top:5px;padding-top:5px;border-top:1px solid var(--b0);line-height:1.5}
+.warn-pill{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;margin-top:3px}
+.wp-warn{background:var(--gld2);color:var(--gld);border:1px solid var(--gld3)}
+.wp-bad {background:var(--red2);color:var(--red);border:1px solid var(--red3)}
+.wp-good{background:var(--grn2);color:var(--grn);border:1px solid var(--grn3)}
+
+/* ── COMPARE TABLE ── */
+.ctbl{width:100%;border-collapse:collapse}
+.ctbl th{font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:var(--t3);text-transform:uppercase;padding:6px 10px;border-bottom:1px solid var(--b1);font-weight:400;text-align:left}
+.ctbl td{font-family:var(--mono);font-size:11px;padding:7px 10px;border-bottom:1px solid rgba(88,140,200,.05);vertical-align:middle}
+.ctbl tr:hover td{background:rgba(61,144,245,.04)}
+
+/* ── AI PANEL ── */
+.aipnl{background:var(--bg1);border-top:1px solid var(--b1)}
+.ai-hd{padding:10px 18px;border-bottom:1px solid var(--b1);display:flex;align-items:center;gap:9px}
+.ai-t{font-family:var(--mono);font-size:9px;letter-spacing:.12em;color:var(--acc);text-transform:uppercase}
+.ai-st{font-family:var(--mono);font-size:9px;color:var(--t3);margin-left:auto}
+.ai-bd{padding:12px 18px;display:flex;flex-direction:column;gap:9px}
+.qps{display:flex;gap:5px;flex-wrap:wrap}
+.qp{font-family:var(--mono);font-size:10px;color:var(--t3);border:1px solid var(--b1);border-radius:3px;padding:3px 8px;cursor:pointer;background:none;transition:.15s}
+.qp:hover{color:var(--acc);border-color:var(--acc);background:var(--acc2)}
+.ai-row{display:flex;gap:7px}
+.ai-inp{flex:1;background:var(--bg2);border:1px solid var(--b1);border-radius:var(--r);color:var(--t1);font-family:var(--mono);font-size:12px;padding:7px 11px;outline:none;transition:.18s}
+.ai-inp:focus{border-color:var(--acc)}.ai-inp::placeholder{color:var(--t3)}
+.ai-run{background:var(--acc);border:none;border-radius:var(--r);color:#fff;font-family:var(--mono);font-size:11px;font-weight:600;padding:7px 14px;cursor:pointer;display:flex;align-items:center;gap:5px;letter-spacing:.04em;transition:.15s;white-space:nowrap}
+.ai-run:hover{opacity:.84}.ai-run:disabled{opacity:.4;cursor:default}
+.ai-dots{display:none;font-family:var(--mono);font-size:11px;color:var(--t3)}
+.ai-dots.on{display:flex;align-items:center;gap:6px}
+.ai-dots span{display:inline-block;width:5px;height:5px;background:var(--acc);border-radius:50%;animation:blink 1.2s infinite}
+.ai-dots span:nth-child(2){animation-delay:.2s}.ai-dots span:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,100%{opacity:.2}50%{opacity:1}}
+.ai-out{background:var(--bg2);border:1px solid var(--b1);border-radius:var(--r);padding:11px 13px;font-size:12px;color:var(--t2);line-height:1.8;display:none}
+.ai-out.on{display:block}
+.ai-out strong{color:var(--t1);font-weight:500}
+.at{display:inline-block;font-family:var(--mono);font-size:9px;padding:1px 6px;border-radius:2px;margin:1px;border:1px solid}
+.at-buy{background:var(--grn2);color:var(--grn);border-color:var(--grn3)}
+.at-sell{background:var(--red2);color:var(--red);border-color:var(--red3)}
+.at-hold{background:var(--gld2);color:var(--gld);border-color:var(--gld3)}
+.at-info{background:var(--acc2);color:var(--acc);border-color:var(--acc3)}
+
+/* ── LOADING BAR ── */
+.loadbar{height:2px;background:linear-gradient(90deg,transparent,var(--acc),transparent);background-size:200% 100%;animation:lslide 1s linear infinite;display:none;position:sticky;top:0;z-index:100}
+.loadbar.on{display:block}
+@keyframes lslide{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* ── ERROR BANNER ── */
+.errbanner{background:var(--red2);border:1px solid var(--red3);border-radius:var(--r);margin:12px 16px;padding:10px 14px;font-size:12px;color:var(--red);font-family:var(--mono);display:none}
+.errbanner.on{display:block}
+
+/* ── CONNECT MODAL ── */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:1000;display:none;align-items:center;justify-content:center}
+.modal.on{display:flex}
+.mbox{background:var(--bg2);border:1px solid var(--b2);border-radius:8px;padding:22px;width:460px;max-width:92vw}
+.mbox-t{font-family:var(--mono);font-size:14px;font-weight:600;margin-bottom:5px}
+.mbox-sub{font-size:12px;color:var(--t2);margin-bottom:14px;line-height:1.6}
+.code-block{background:var(--bg0);border:1px solid var(--b1);border-radius:var(--r);padding:10px 13px;font-family:var(--mono);font-size:11px;color:var(--grn);margin-bottom:14px;line-height:1.9;white-space:pre}
+.mbox-row{display:flex;gap:7px;align-items:center;margin-bottom:12px}
+.ml{font-size:11px;color:var(--t3);white-space:nowrap}
+.mfooter{display:flex;justify-content:flex-end;gap:8px}
+.btn-ghost{background:var(--bg4);color:var(--t1);border:1px solid var(--b1);border-radius:var(--r);padding:7px 13px;font-size:12px;cursor:pointer;font-family:var(--mono);transition:.15s}
+.btn-ghost:hover{border-color:var(--b2)}
+
+/* ── CROSSHAIR TOOLTIP ── */
+#chartTooltip{
+  position:fixed;pointer-events:none;z-index:800;
+  background:rgba(12,16,22,.97);border:1px solid rgba(88,140,200,.35);
+  border-radius:5px;padding:10px 13px;min-width:180px;
+  box-shadow:0 4px 24px rgba(0,0,0,.5);
+  transition:opacity .08s;opacity:0;
+}
+#chartTooltip.show{opacity:1}
+.ct-date{font-family:var(--mono);font-size:10px;color:var(--t3);
+  letter-spacing:.07em;margin-bottom:7px;border-bottom:1px solid rgba(88,140,200,.15);padding-bottom:5px}
+.ct-row{display:flex;align-items:center;gap:7px;padding:2px 0}
+.ct-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.ct-lbl{font-size:11px;color:var(--t2);flex:1}
+.ct-val{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--t1)}
+
+/* ── ZOOM CONTROLS ── */
+.zoom-bar{display:flex;align-items:center;gap:6px;padding:4px 15px 6px;background:var(--bg1);border-bottom:1px solid var(--b0)}
+.zoom-btn{font-family:var(--mono);font-size:10px;color:var(--t3);background:none;border:1px solid var(--b1);border-radius:3px;padding:2px 9px;cursor:pointer;transition:.15s}
+.zoom-btn:hover{color:var(--acc);border-color:var(--acc)}
+.zoom-hint{font-family:var(--mono);font-size:10px;color:var(--t4);margin-left:auto}
+
+/* ── BRUSH NAVIGATOR ── */
+.brush-wrap{padding:0 15px 10px;background:var(--bg1)}
+.brush-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--t3);text-transform:uppercase;margin-bottom:4px;display:flex;justify-content:space-between}
+/* KEY FIX: wrap canvas in a fixed-height container so Chart.js responsive mode
+   reads a stable parent height and never enters an expand loop */
+.brush-canvas-wrap{position:relative;height:48px;width:100%;overflow:hidden}
+#brushC{display:block}
+.brush-range-info{font-family:var(--mono);font-size:10px;color:var(--t3);text-align:center;margin-top:2px;min-height:14px}
+</style>
+</head>
+<body>
+
+<div class="tb">
+  <div class="logo"><div class="logo-pulse"></div>QUANT_TERMINAL<span style="opacity:.4"> v3</span></div>
+  <nav class="tabs">
+    <div class="tab on" onclick="goTab(this,'ov')">OVERVIEW</div>
+    <div class="tab" onclick="goTab(this,'tech')">TECHNICAL</div>
+    <div class="tab" onclick="goTab(this,'val')">VALUATION</div>
+    <div class="tab" onclick="goTab(this,'quant')">QUANT FACTORS</div>
+    <div class="tab" onclick="goTab(this,'ind')">INDUSTRY</div>
+    <div class="tab" onclick="goTab(this,'cmp')">COMPARE</div>
+  </nav>
+  <div class="tr">
+    <div class="api-st chk" id="apiSt" onclick="openModal()">API: —</div>
+    <div id="clk"></div>
+  </div>
+</div>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <div class="sb">
+    <div class="sb-s">
+      <div class="lbl">搜索 / 添加</div>
+      <div class="inp-row">
+        <input class="inp" id="srchQ" placeholder="代码 或 名称..." onkeydown="if(event.key==='Enter')doSearch()">
+        <button class="btn" onclick="doSearch()">▶</button>
+      </div>
+      <div class="type-row">
+        <div class="tt on" onclick="setType(this,'fund')">基金</div>
+        <div class="tt" onclick="setType(this,'stock')">股票</div>
+        <div class="tt" onclick="setType(this,'both')">全部</div>
+      </div>
+    </div>
+    <div class="wl" id="wl"></div>
+    <div class="sb-mf">
+      <div class="lbl" style="margin-bottom:6px">手动更新净值</div>
+      <div class="inp-row">
+        <input class="inp" id="mCode" placeholder="代码" style="width:76px">
+        <input class="inp" id="mNav" placeholder="净值/价格" type="number" step="0.0001">
+        <button class="btn" onclick="manualUpd()" style="padding:7px 9px">↑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main" id="mc">
+    <div class="loadbar" id="lb"></div>
+    <div class="errbanner" id="err"></div>
+
+    <!-- OVERVIEW -->
+    <div id="t-ov">
+      <div class="fhd">
+        <div class="fhd-l">
+          <div class="fn" id="ov-nm">— 选择或搜索标的 —</div>
+          <div class="fsub" id="ov-sub">
+            <span>在左侧输入基金代码（如 161725）或 A 股代码（如 600519）</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px">
+          <div class="rpills" id="rp">
+            <button class="rp on" onclick="setRng(this,'1y')">1Y</button>
+            <button class="rp" onclick="setRng(this,'3y')">3Y</button>
+            <button class="rp" onclick="setRng(this,'5y')">5Y</button>
+            <button class="rp" onclick="setRng(this,'all')">ALL</button>
+          </div>
+          <div class="px-blk">
+            <div class="px-big" id="ov-px">—</div>
+            <div class="px-chg" id="ov-chg" style="color:var(--t3)">等待数据</div>
+          </div>
+        </div>
+      </div>
+      <div class="mstrip" id="mstrip"></div>
+      <div class="g g31" style="margin-bottom:1px">
+        <div class="pnl">
+          <div class="ph">
+            <span class="pt" id="mc-title">净值 / 价格 · 趋势通道</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-family:var(--mono);font-size:9px;color:var(--t4)">滚轮缩放 · 拖拽平移</span>
+            </div>
+          </div>
+          <div class="pb" style="padding-bottom:0">
+            <div class="cw" style="height:260px;margin-bottom:0"><canvas id="mainC"></canvas></div>
+          </div>
+          <div class="zoom-bar">
+            <button class="zoom-btn" onclick="zoomReset()">复位</button>
+            <button class="zoom-btn" onclick="zoomWindow(30)">1M</button>
+            <button class="zoom-btn" onclick="zoomWindow(90)">3M</button>
+            <button class="zoom-btn" onclick="zoomWindow(180)">6M</button>
+            <button class="zoom-btn" onclick="zoomWindow(365)">1Y</button>
+            <button class="zoom-btn" onclick="zoomWindow(730)">2Y</button>
+            <span class="zoom-hint" id="zoomInfo">全部数据</span>
+          </div>
+          <div class="brush-wrap">
+            <div class="brush-label">
+              <span>时间轴导航 — 拖动选区以聚焦</span>
+              <span id="brushInfo" style="font-size:9px;color:var(--t3)"></span>
+            </div>
+            <div class="brush-canvas-wrap" id="brushCanvasWrap">
+              <!-- canvases injected by buildBrushChart() -->
+            </div>
+          </div>
+        </div>
+        <div class="pnl">
+          <div class="ph"><span class="pt">交易信号 · 仓位</span></div>
+          <div class="pb">
+            <div id="sigEl"></div>
+            <div class="lbl" style="margin:8px 0 5px">参考仓位</div>
+            <div class="pgauge"><div class="pgbar"><div class="pgfill mid" id="pgf" style="width:0%"></div></div><div class="pgpct" id="pgp">—</div></div>
+            <div style="font-size:11px;color:var(--t3);margin-bottom:9px" id="pgHint"></div>
+            <div style="height:1px;background:var(--b0);margin-bottom:9px"></div>
+            <div id="klevels"></div>
+          </div>
+        </div>
+      </div>
+      <div class="g g2" style="margin-bottom:1px">
+        <div class="pnl">
+          <div class="ph"><span class="pt">回撤分析</span></div>
+          <div class="pb"><div class="cw" style="height:140px"><canvas id="ddC"></canvas></div><div id="ddSt" style="margin-top:9px"></div></div>
+        </div>
+        <div class="pnl">
+          <div class="ph"><span class="pt">阶段收益率</span></div>
+          <div class="pb"><div class="cw" style="height:140px"><canvas id="retC"></canvas></div><div id="retGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:7px"></div></div>
+        </div>
+      </div>
+      <div class="aipnl">
+        <div class="ai-hd">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1L7 4.2L10.5 5.5L7 6.8L6 10L5 6.8L1.5 5.5L5 4.2Z" fill="#3d90f5" opacity=".85"/></svg>
+          <span class="ai-t">AI 分析</span>
+          <span class="ai-st" id="aiSt">就绪</span>
+        </div>
+        <div class="ai-bd">
+          <div class="qps" id="qpBtns"></div>
+          <div class="ai-row">
+            <input class="ai-inp" id="aiQ" placeholder="问任何问题，AI 将基于真实数据回答..." onkeydown="if(event.key==='Enter')runAI()">
+            <button class="ai-run" id="aiBtn" onclick="runAI()">▶ 分析</button>
+          </div>
+          <div class="ai-dots" id="aiDots"><span></span><span></span><span></span><span style="margin-left:4px">AI 分析中...</span></div>
+          <div class="ai-out" id="aiOut"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TECHNICAL -->
+    <div id="t-tech" style="display:none">
+      <div class="fhd"><div class="fhd-l"><div class="fn" id="tech-nm">技术面分析</div></div>
+        <div class="rpills"><button class="rp on" onclick="setRng(this,'1y')">1Y</button><button class="rp" onclick="setRng(this,'3y')">3Y</button></div>
+      </div>
+      <div class="pnl" style="margin-bottom:1px">
+        <div class="ph"><span class="pt">K线 · 布林带 (20,2σ) · MA5/20/60</span></div>
+        <div class="pb"><div class="cw" style="height:260px"><canvas id="techC"></canvas></div></div>
+      </div>
+      <div class="g g3" style="margin-bottom:1px">
+        <div class="pnl">
+          <div class="ph"><span class="pt">MACD (12/26/9)</span></div>
+          <div class="pb"><div class="cw" style="height:130px"><canvas id="macdC"></canvas></div></div>
+        </div>
+        <div class="pnl">
+          <div class="ph"><span class="pt">RSI 6 / 14</span></div>
+          <div class="pb"><div class="cw" style="height:130px"><canvas id="rsiC"></canvas></div></div>
+        </div>
+        <div class="pnl">
+          <div class="ph"><span class="pt">KDJ (9,3,3)</span></div>
+          <div class="pb"><div class="cw" style="height:130px"><canvas id="kdjC"></canvas></div></div>
+        </div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><span class="pt">技术指标当前值</span></div>
+        <div class="pb"><div id="techStats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px"></div></div>
+      </div>
+    </div>
+
+    <!-- VALUATION -->
+    <div id="t-val" style="display:none">
+      <div class="fhd"><div class="fhd-l"><div class="fn">估值分析 · PE/PB 历史百分位</div></div></div>
+      <div class="g g2" style="margin-bottom:1px">
+        <div class="pnl">
+          <div class="ph"><span class="pt">PE 市盈率 · 3年走势</span></div>
+          <div class="pb"><div class="cw" style="height:180px"><canvas id="peC"></canvas></div><div id="peSt" style="margin-top:9px"></div></div>
+        </div>
+        <div class="pnl">
+          <div class="ph"><span class="pt">PB 市净率 · 3年走势</span></div>
+          <div class="pb"><div class="cw" style="height:180px"><canvas id="pbC"></canvas></div><div id="pbSt" style="margin-top:9px"></div></div>
+        </div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><span class="pt">百分位汇总 (1Y / 3Y / 5Y)</span></div>
+        <div class="pb" id="valSum"></div>
+      </div>
+    </div>
+
+    <!-- QUANT FACTORS -->
+    <div id="t-quant" style="display:none">
+      <div class="fhd"><div class="fhd-l"><div class="fn">量化多因子深度分析</div></div></div>
+      <div class="g g21" style="margin-bottom:1px">
+        <div class="pnl">
+          <div class="ph"><span class="pt">5 大量化因子</span></div>
+          <div class="pb"><div class="qgrid" id="qgrid"></div></div>
+        </div>
+        <div class="pnl">
+          <div class="ph"><span class="pt">综合评分 · 建议仓位</span></div>
+          <div class="pb">
+            <div class="sring-wrap" id="sring"></div>
+            <div style="height:1px;background:var(--b0);margin:9px 0"></div>
+            <div id="sdims"></div>
+            <div id="swarn" style="margin-top:9px"></div>
+          </div>
+        </div>
+      </div>
+      <div class="g g2">
+        <div class="pnl">
+          <div class="ph"><span class="pt">毛利率季度波动</span></div>
+          <div class="pb"><div class="cw" style="height:160px"><canvas id="gmC"></canvas></div><div id="gmSt" style="margin-top:8px"></div></div>
+        </div>
+        <div class="pnl">
+          <div class="ph"><span class="pt">机构持仓趋势</span></div>
+          <div class="pb"><div class="cw" style="height:160px"><canvas id="instC"></canvas></div><div id="instSt" style="margin-top:8px"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INDUSTRY -->
+    <div id="t-ind" style="display:none">
+      <div class="fhd"><div class="fhd-l"><div class="fn">行业中性化分析</div></div></div>
+      <div class="pnl" style="margin-bottom:1px">
+        <div class="ph"><span class="pt">同行业横向对比</span></div>
+        <div class="pb">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+            <div style="flex:2;min-width:200px">
+              <div class="lbl" style="margin-bottom:4px">对比股票池（逗号分隔）</div>
+              <input class="inp" id="indCodes" placeholder="如 600519,000858,002304,603369">
+            </div>
+            <div style="flex:1;min-width:120px">
+              <div class="lbl" style="margin-bottom:4px">对比指标</div>
+              <select class="inp" id="indMetric" style="cursor:pointer">
+                <option value="roe">ROE 净资产收益率</option>
+                <option value="gross_margin">毛利率</option>
+                <option value="pe_ttm">PE (动态)</option>
+                <option value="pb">PB 市净率</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:flex-end">
+              <button class="btn" onclick="runIndustry()">对比分析</button>
+            </div>
+          </div>
+          <div id="indResult"></div>
+        </div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><span class="pt">行业分位可视化</span></div>
+        <div class="pb"><div class="cw" style="height:200px"><canvas id="indC"></canvas></div></div>
+      </div>
+    </div>
+
+    <!-- COMPARE -->
+    <div id="t-cmp" style="display:none">
+      <div class="fhd"><div class="fhd-l"><div class="fn">多标的对比分析</div></div></div>
+      <!-- 添加标的区 -->
+      <div class="pnl" style="margin-bottom:1px">
+        <div class="ph"><span class="pt">对比标的管理</span></div>
+        <div class="pb">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+            <div>
+              <div class="lbl" style="margin-bottom:4px">添加股票/基金代码</div>
+              <div class="inp-row" style="width:320px">
+                <input class="inp" id="cmpAddCode" placeholder="如 600519 或 161725" style="flex:1" onkeydown="if(event.key==='Enter')cmpAdd()">
+                <select class="inp" id="cmpAddType" style="width:76px;cursor:pointer">
+                  <option value="stock">股票</option>
+                  <option value="fund">基金</option>
+                </select>
+                <button class="btn" onclick="cmpAdd()">+ 添加</button>
+              </div>
+            </div>
+            <div>
+              <div class="lbl" style="margin-bottom:4px">快速添加</div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap">
+                <button class="zoom-btn" onclick="cmpQuick('600519','贵州茅台','stock')">茅台</button>
+                <button class="zoom-btn" onclick="cmpQuick('000858','五粮液','stock')">五粮液</button>
+                <button class="zoom-btn" onclick="cmpQuick('002304','洋河股份','stock')">洋河</button>
+                <button class="zoom-btn" onclick="cmpQuick('002610','博时黄金','fund')">黄金ETF</button>
+                <button class="zoom-btn" onclick="cmpQuick('161725','招商白酒','fund')">白酒LOF</button>
+              </div>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:flex-end;gap:6px">
+              <div class="rpills" id="cmpRngPills">
+                <button class="rp on" onclick="setCmpRng(this,1)">1Y</button>
+                <button class="rp" onclick="setCmpRng(this,3)">3Y</button>
+                <button class="rp" onclick="setCmpRng(this,5)">5Y</button>
+              </div>
+              <button class="zoom-btn" onclick="cmpClearAll()" style="color:var(--red);border-color:rgba(231,76,60,.3)">清空</button>
+            </div>
+          </div>
+          <div id="cmpList" style="display:flex;gap:6px;flex-wrap:wrap;min-height:26px;padding-top:2px"></div>
+        </div>
+      </div>
+      <!-- 走势图 -->
+      <div class="pnl" style="margin-bottom:1px">
+        <div class="ph">
+          <span class="pt">收益归一化走势（起始=100）</span>
+          <div id="cmpLegend" style="display:flex;gap:10px;flex-wrap:wrap;margin-left:auto"></div>
+        </div>
+        <div class="pb">
+          <div id="cmpStatus" style="font-family:var(--mono);font-size:10px;color:var(--t3);margin-bottom:6px;min-height:14px"></div>
+          <div class="cw" style="height:270px"><canvas id="cmpC"></canvas></div>
+        </div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><span class="pt">指标横向对比表</span></div>
+        <div class="pb" id="cmpTbl">
+          <div style="font-family:var(--mono);font-size:11px;color:var(--t3);padding:12px 0">
+            在上方输入代码并点击「+ 添加」以开始多标的对比
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Crosshair Tooltip -->
+<div id="chartTooltip">
+  <div class="ct-date" id="ctDate"></div>
+  <div id="ctRows"></div>
+</div>
+
+<!-- Connect Modal -->
+<div class="modal" id="modal" onclick="if(event.target===this)this.classList.remove('on')">
+  <div class="mbox">
+    <div class="mbox-t">连接本地 API 后端</div>
+    <div class="mbox-sub">前端依赖本地 Python 后端提供真实数据。请先在终端启动后端，再输入地址连接。</div>
+    <div class="code-block">pip install akshare fastapi uvicorn pandas numpy scipy
+python main.py   # 在 quant_v3/ 目录下
+
+# 或携带 Tushare Token:
+TUSHARE_TOKEN=你的token python main.py</div>
+    <div class="mbox-row">
+      <span class="ml">API 地址：</span>
+      <input class="inp" id="apiUrl" value="http://localhost:8000">
+    </div>
+    <div class="mbox-row" style="margin-bottom:0">
+      <span class="ml">Tushare Token（可选）：</span>
+      <input class="inp" id="tsToken" placeholder="留空则仅用 AkShare" type="password">
+    </div>
+    <div class="mfooter">
+      <button class="btn-ghost" onclick="document.getElementById('modal').classList.remove('on')">取消</button>
+      <button class="btn" onclick="doConnect()">连接</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// CONFIG & STATE
+// ═══════════════════════════════════════════════
+let API = localStorage.getItem('api') || 'http://localhost:8000';
+let apiOk = false;
+let curType = 'fund';
+let curRng  = '1y';
+let curTab  = 'ov';
+let activeIdx = 0;
+let activeData = null;
+const charts = {};
+const C = ['#3d90f5','#f39c12','#2ecc71','#e74c3c','#9b59b6','#1abc9c','#e91e8c','#f1c40f'];
+
+let wl = JSON.parse(localStorage.getItem('wl') || 'null') || [
+  {code:'161725',name:'招商中证白酒指数(LOF)A',type:'fund',nav:0.8970,prev:0.9011,signal:'hold'},
+  {code:'002610',name:'博时黄金ETF联接A',       type:'fund',nav:3.4730,prev:3.4195,signal:'buy'},
+  {code:'600519',name:'贵州茅台',                type:'stock',nav:1580,  prev:1562,  signal:'hold'},
+];
+function saveWL() { localStorage.setItem('wl', JSON.stringify(wl)); }
+
+function inferAssetType(code, fallback=curType) {
+  const s = String(code || '').trim();
+  if (/^(60|68|00|30)\d{4}$/.test(s)) return 'stock';
+  if (fallback === 'stock' || fallback === 'fund') return fallback;
+  return 'fund';
+}
+
+function normalizeWatchlistTypes() {
+  let changed = false;
+  wl.forEach(item => {
+    const inferred = inferAssetType(item.code, item.type);
+    if (item.type !== inferred) {
+      item.type = inferred;
+      changed = true;
+    }
+  });
+  if (changed) saveWL();
+}
+normalizeWatchlistTypes();
+
+// ═══════════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════════
+async function checkApi() {
+  const el = document.getElementById('apiSt');
+  el.textContent = 'API: 检测...'; el.className = 'api-st chk';
+  try {
+    const r = await fetch(API + '/', {signal: AbortSignal.timeout(4000)});
+    if (r.ok) {
+      apiOk = true;
+      const d = await r.json();
+      const src = d.datasource?.primary || 'unknown';
+      el.textContent = `API: 已连接 [${src.toUpperCase()}]`;
+      el.className = 'api-st ok';
+      return true;
+    }
+  } catch {}
+  apiOk = false;
+  el.textContent = 'API: 未连接 (点击配置)';
+  el.className = 'api-st err';
+  return false;
+}
+
+async function get(path) {
+  if (!apiOk) { showErr('后端未连接，请点击右上角 "API" 按钮配置。'); return null; }
+  try {
+    const r = await fetch(API + path, {signal: AbortSignal.timeout(35000)});
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return await r.json();
+  } catch(e) { showErr(`请求失败: ${e.message}`); return null; }
+}
+
+function openModal() { document.getElementById('apiUrl').value = API; document.getElementById('modal').classList.add('on'); }
+
+async function doConnect() {
+  API = document.getElementById('apiUrl').value.trim().replace(/\/$/, '');
+  localStorage.setItem('api', API);
+  const tok = document.getElementById('tsToken').value.trim();
+  if (tok) { await fetch(API + `/api/datasource/set_token?token=${tok}`, {method:'POST'}).catch(()=>{}); }
+  document.getElementById('modal').classList.remove('on');
+  const ok = await checkApi();
+  if (ok && wl.length) loadData();
+}
+
+// ═══════════════════════════════════════════════
+// LOAD DATA
+// ═══════════════════════════════════════════════
+async function loadData() {
+  const item = wl[activeIdx];
+  if (!item) return;
+  setLoad(true); hideErr();
+
+  const rnMap = {'1y':'1年','3y':'3年','5y':'5年','all':'成立来'};
+  let d;
+  if (item.type === 'fund') {
+    d = await get(`/api/fund/${item.code}?period=${encodeURIComponent(rnMap[curRng]||'成立来')}`);
+  } else {
+    const yMap = {'1y':1,'3y':3,'5y':5,'all':8};
+    d = await get(`/api/stock/${item.code}?years=${yMap[curRng]||3}&include_financial=true`);
+  }
+
+  if (d) {
+    activeData = d;
+    const nav = d.latest?.nav ?? d.latest?.close;
+    if (nav) { item.prev = item.nav; item.nav = nav; }
+    item.signal = d.signal || d.quant_score?.signal || 'hold';
+    saveWL();
+    renderCurrent();
+  }
+  setLoad(false);
+}
+
+// ═══════════════════════════════════════════════
+// RENDER DISPATCH
+// ═══════════════════════════════════════════════
+function renderCurrent() {
+  buildWL();
+  if (!activeData) return;
+  const item = wl[activeIdx];
+  if (curTab === 'ov')    renderOv(activeData, item);
+  if (curTab === 'tech')  renderTech(activeData, item);
+  if (curTab === 'val')   renderVal(activeData, item);
+  if (curTab === 'quant') renderQuant(activeData, item);
+  if (curTab === 'cmp')   renderCmp();
+}
+
+// ═══════════════════════════════════════════════
+// OVERVIEW
+// ═══════════════════════════════════════════════
+function renderOv(d, item) {
+  const lat = d.latest || {};
+  const nav = lat.nav ?? lat.close ?? 0;
+  const prev = item.prev || nav;
+  const chg = prev ? (nav - prev) / prev * 100 : 0;
+  const isUp = chg >= 0;
+  const src = d.datasource_log ? Object.values(d.datasource_log)[0] || '' : '';
+
+  // Header
+  document.getElementById('ov-nm').textContent = item.name || item.code;
+  document.getElementById('ov-sub').innerHTML =
+    `<span>${item.code} · ${item.type === 'fund' ? '基金' : '股票'} · ${lat.date||''}</span>
+     ${src ? `<span class="src-tag">${src.toUpperCase()}</span>` : ''}
+     ${d.industry ? `<span class="src-tag" style="background:var(--pur);opacity:.8;color:#fff">${d.industry}</span>` : ''}`;
+  const pxEl = document.getElementById('ov-px');
+  pxEl.textContent = nav.toFixed(item.type==='fund'?4:2);
+  pxEl.className = 'px-big ' + (isUp?'up':'dn');
+  const chgEl = document.getElementById('ov-chg');
+  chgEl.textContent = `${isUp?'▲':'▼'} ${Math.abs(chg).toFixed(2)}%`;
+  chgEl.className = 'px-chg ' + (isUp?'up':'dn');
+  document.getElementById('mc-title').textContent = item.type==='fund' ? '净值 · 趋势通道 ±20%' : '收盘价 · 趋势通道 ±20%';
+
+  // Metric strip
+  const r = d.returns || {}, dd = d.drawdown || {}, v = d.valuation || {}, qs = d.quant_score || {};
+  const strip = [
+    {l:'MAX DD', v:fn(dd.max_drawdown,1,'%'), c:'c-pos'},
+    {l:'CUR DD', v:fn(dd.current_drawdown,1,'%'), c:'c-pos'},
+    {l:'SHARPE', v:fn(r.sharpe,2), c:'c-acc'},
+    {l:'CALMAR', v:fn(r.calmar,2), c:'c-acc'},
+    {l:'1M', v:fret(r['1m']), c:rc(r['1m'])},
+    {l:'1Y', v:fret(r['1y']), c:rc(r['1y'])},
+    {l:'3Y', v:fret(r['3y']), c:rc(r['3y'])},
+    {l:'ANNUAL', v:fret(r.annualized), c:rc(r.annualized)},
+  ];
+  if (item.type==='stock') {
+    strip.push({l:'PE-TTM', v:fn(lat.pe_ttm,1), c:'c-neu'});
+    strip.push({l:'PB', v:fn(lat.pb,2), c:'c-pur'});
+  }
+  const sig = d.signal || qs.signal || 'hold';
+  strip.push({l:'SIGNAL', v:sig.toUpperCase(), c: sig==='buy'?'c-neg':sig==='sell'?'c-pos':'c-neu'});
+  strip.push({l:'SCORE', v:(qs.total_score??'—') + (qs.total_score?'/100':''), c: scoreColor(qs.total_score)});
+  document.getElementById('mstrip').innerHTML = strip.map(m =>
+    `<div class="ms"><div class="ms-l">${m.l}</div><div class="ms-v ${m.c}">${m.v}</div></div>`
+  ).join('');
+
+  // Main chart — with crosshair tooltip + zoom + brush navigator
+  const prices = d.nav || d.close || [];
+  const dates  = d.dates || [];
+  const ch = d.channel || {};
+  const tr = d.trading_ranges || {};
+  // Store globally for zoom/brush access
+  window._mainPrices = prices;
+  window._mainDates  = dates;
+  window._mainCh     = ch;
+  window._mainTR     = tr;
+
+  dC('mainC');
+  if (prices.length) {
+    buildMainChart(dates, prices, ch, tr);
+    buildBrushChart(dates, prices);
+  }
+
+  // Signal
+  const sigIco = {buy:'↑',hold:'→',sell:'↓'};
+  const sigTxt = {buy:'推荐买入',hold:'持仓观望',sell:'建议减持'};
+  const pos = d.suggested_position ?? qs.suggested_position ?? 50;
+  const reason = d.signal_reason || qs.signal_cn || '';
+  document.getElementById('sigEl').innerHTML = `
+    <div class="sigc ${sig}">
+      <div class="sic ${sig}">${sigIco[sig]}</div>
+      <div><div class="sit ${sig}">${sigTxt[sig]}</div><div class="sid">${reason}</div></div>
+    </div>`;
+  const pgf = document.getElementById('pgf');
+  pgf.style.width = pos + '%';
+  pgf.className = 'pgfill ' + (pos>=80?'high':pos>=45?'mid':'low');
+  document.getElementById('pgp').textContent = pos + '%';
+  document.getElementById('pgHint').textContent = pos>=80?'高仓位，趋势强劲':pos>=50?'标配仓位，等待确认':'低仓位，等待底部信号';
+
+  // Key levels
+  const cur = prices[prices.length-1];
+  document.getElementById('klevels').innerHTML = [
+    {l:'+20%上轨', v:fn(ch.current_upper,4), cl:'#e74c3c'},
+    {l:'趋势中轨',  v:fn(ch.current_mid,4),   cl:'#f39c12'},
+    {l:'-20%下轨', v:fn(ch.current_lower,4),  cl:'#2ecc71'},
+    {l:'买入区上沿', v:fn(tr.latest?.buy_zone_price,4), cl:'#2ecc71'},
+    {l:'减仓区下沿', v:fn(tr.latest?.sell_zone_price,4), cl:'#e74c3c'},
+    {l:'参考仓位', v:tr.latest?.suggested_position_pct!=null?tr.latest.suggested_position_pct+'%':'—', cl:'#c9785f'},
+    {l:'当前值',   v:fn(cur,4),                cl:'#3d90f5'},
+    {l:'偏离中轨', v:(ch.deviation_pct!=null?(ch.deviation_pct>0?'+':'')+ch.deviation_pct.toFixed(1)+'%':'—'), cl:ch.deviation_pct>0?'#e74c3c':'#2ecc71'},
+  ].map(r=>`<div class="dr"><span class="dl">${r.l}</span><div style="display:flex;align-items:center;gap:7px"><div style="width:20px;height:2px;background:${r.cl};border-radius:1px"></div><span class="dv" style="color:${r.cl}">${r.v}</span></div></div>`).join('');
+
+  // Drawdown chart
+  dC('ddC');
+  const dds = dd.drawdown_series || [];
+  if (dds.length) {
+    charts.ddC = mkChart('ddC','line',dates.slice(-dds.length),[
+      {data:dds,borderColor:'#e74c3c',borderWidth:1.5,pointRadius:0,fill:{target:'origin',above:'rgba(231,76,60,.07)'},tension:.3}
+    ],{y:{ticks:{callback:v=>v+'%'}}},true);
+  }
+  document.getElementById('ddSt').innerHTML = [
+    {l:'当前回撤',v:fn(dd.current_drawdown,1,'%'),c:'c-pos'},
+    {l:'最大回撤',v:fn(dd.max_drawdown,1,'%'),c:'c-pos'},
+    {l:'水下天数',v:(dd.underwater_days??'—')+'天',c:'c-neu'},
+  ].map(r=>`<div class="dr"><span class="dl">${r.l}</span><span class="dv ${r.c}">${r.v}</span></div>`).join('');
+
+  // Returns chart + grid
+  dC('retC');
+  const rks = ['1m','3m','6m','1y','3y','5y'], rls = ['1M','3M','6M','1Y','3Y','5Y'];
+  const rvs = rks.map(k=>r[k]!=null?+r[k].toFixed(2):null).filter(v=>v!=null);
+  const rll = rls.slice(0,rvs.length);
+  charts.retC = mkChart('retC','bar',rll,[
+    {data:rvs,backgroundColor:rvs.map(v=>v>=0?'rgba(46,204,113,.7)':'rgba(231,76,60,.7)'),borderRadius:3,borderSkipped:false}
+  ],{y:{ticks:{callback:v=>v+'%'}},x:{grid:{display:false}}},true);
+  document.getElementById('retGrid').innerHTML = rks.slice(0,rvs.length).map((k,i)=>{
+    const v = r[k]; return `<div style="background:var(--bg2);border:1px solid var(--b1);border-radius:3px;padding:5px 8px">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--t3)">${rls[i]}</div>
+      <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${v>=0?'var(--grn)':'var(--red)'}">${v!=null?(v>0?'+':'')+v.toFixed(1)+'%':'—'}</div>
+    </div>`;}).join('');
+
+  // AI quick prompts
+  const qps = item.type==='fund'
+    ? ['综合点评该基金','分析买入时机','风险提示','通道信号解读','行业前景分析']
+    : ['综合基本面评价','5大量化指标解读','PE/PB估值分析','技术面信号','机构持仓趋势'];
+  document.getElementById('qpBtns').innerHTML = qps.map(q=>`<button class="qp" onclick="runQuick(this)">${q}</button>`).join('');
+}
+
+// ═══════════════════════════════════════════════
+// TECHNICAL
+// ═══════════════════════════════════════════════
+function renderTech(d, item) {
+  document.getElementById('tech-nm').textContent = item.name + ' · 技术面';
+  const tech = d.technical || {};
+  // BUG FIX: use full data arrays instead of hardcoded slice(-120)
+  // factors.py now returns all data points; range changes are reflected here
+  const dates  = d.dates || [];
+  const prices = d.nav || d.close || [];
+
+  dC('techC');
+  charts.techC = mkChart('techC','line',dates,[
+    {label:'BB上轨',data:tech.bb_upper_series||[],borderColor:'rgba(231,76,60,.4)',borderWidth:1,borderDash:[4,3],pointRadius:0,tension:.3,fill:false},
+    {label:'BB下轨',data:tech.bb_lower_series||[],borderColor:'rgba(46,204,113,.4)',borderWidth:1,borderDash:[4,3],pointRadius:0,tension:.3,fill:'2',backgroundColor:'rgba(46,204,113,.04)'},
+    {label:'BB中轨',data:tech.bb_mid_series||[], borderColor:'rgba(200,216,232,.25)',borderWidth:1,pointRadius:0,tension:.3,fill:false},
+    {label:'MA5',   data:tech.ma5_series||[],    borderColor:'rgba(243,156,18,.8)',borderWidth:1.5,pointRadius:0,tension:.3,fill:false},
+    {label:'MA20',  data:tech.ma20_series||[],   borderColor:'rgba(155,89,182,.8)',borderWidth:1.5,pointRadius:0,tension:.3,fill:false},
+    {label:'价格',  data:prices,borderColor:'#3d90f5',borderWidth:2.5,pointRadius:0,tension:.3,fill:false,order:1},
+  ],{y:{ticks:{callback:v=>v.toFixed(2)}}});
+
+  dC('macdC');
+  const macdH = tech.macd_series||[];
+  charts.macdC = mkChart('macdC','bar',dates.slice(-macdH.length),[
+    {type:'bar',data:macdH,backgroundColor:macdH.map(v=>v>=0?'rgba(46,204,113,.7)':'rgba(231,76,60,.7)'),borderRadius:2,borderSkipped:false,order:2},
+    {type:'line',label:'DIF',data:tech.dif_series||[],borderColor:'#3d90f5',borderWidth:1.5,pointRadius:0,tension:.3,fill:false,order:1},
+    {type:'line',label:'DEA',data:tech.dea_series||[],borderColor:'#f39c12',borderWidth:1.5,pointRadius:0,tension:.3,fill:false,order:1},
+  ],{},true);
+
+  dC('rsiC');
+  const rsi14s = tech.rsi14_series||[], rsi6s = tech.rsi6_series||[];
+  charts.rsiC = new Chart(document.getElementById('rsiC'), {
+    type:'line', data:{labels:dates.slice(-rsi14s.length),datasets:[
+      {label:'RSI14',data:rsi14s,borderColor:'#9b59b6',borderWidth:2,pointRadius:0,tension:.3,fill:false},
+      {label:'RSI6', data:rsi6s, borderColor:'rgba(26,188,156,.7)',borderWidth:1.5,pointRadius:0,tension:.3,fill:false},
+    ]}, options:{...baseOpts({y:{min:0,max:100,ticks:{callback:v=>v,stepSize:30,color:'#506070',font:{family:"'JetBrains Mono'",size:10}}}},true),
+      plugins:{...basePlug()}}
+  });
+
+  dC('kdjC');
+  const ks=tech.kdj_k_series||[], ds_=tech.kdj_d_series||[], js=tech.kdj_j_series||[];
+  charts.kdjC = mkChart('kdjC','line',dates.slice(-ks.length),[
+    {label:'K',data:ks,borderColor:'#f39c12',borderWidth:1.5,pointRadius:0,tension:.3,fill:false},
+    {label:'D',data:ds_,borderColor:'#e74c3c',borderWidth:1.5,pointRadius:0,tension:.3,fill:false},
+    {label:'J',data:js, borderColor:'rgba(155,89,182,.8)',borderWidth:1,pointRadius:0,tension:.3,fill:false},
+  ],{},true);
+
+  // Stats grid
+  const rsi=tech.rsi14, macd=tech.macd_hist, bb_b=tech.bb_pct_b;
+  const rziStr = rsi<30?'超卖 ★':rsi>70?'超买 ▲':'正常';
+  const rziC   = rsi<30?'c-neg':rsi>70?'c-pos':'c-acc';
+  document.getElementById('techStats').innerHTML = [
+    {l:'MA5',  v:fn(tech.ma5,3)}, {l:'MA20', v:fn(tech.ma20,3)},
+    {l:'MA60', v:fn(tech.ma60,3)},{l:'MACD柱',v:fn(macd,4),extra:`<span class="${macd>0?'c-neg':'c-pos'}" style="font-size:9px"> ${tech.macd_signal||''}</span>`},
+    {l:'RSI14',v:fn(rsi,2), extra:`<span class="${rziC}" style="font-size:9px"> ${rziStr}</span>`},
+    {l:'RSI6', v:fn(tech.rsi6,2)},
+    {l:'BB-%B',v:fn(bb_b,2), extra:`<span class="c-acc" style="font-size:9px"> ${bb_b!=null?(bb_b>0.8?'近上轨':bb_b<0.2?'近下轨':'中性'):''}</span>`},
+    {l:'趋势',  v:tech.trend==='up'?'↑ 上升':'↓ 下降', extra:'', c:tech.trend==='up'?'c-neg':'c-pos'},
+    {l:'KDJ-K',v:fn(tech.kdj_k,2)}, {l:'KDJ-D',v:fn(tech.kdj_d,2)},
+    {l:'KDJ-J',v:fn(tech.kdj_j,2)}, {l:'BB宽度',v:fn(tech.bb_width,4)},
+  ].map(r=>`<div style="background:var(--bg2);border:1px solid var(--b1);border-radius:3px;padding:7px 10px">
+    <div style="font-family:var(--mono);font-size:9px;color:var(--t3)">${r.l}</div>
+    <div style="font-family:var(--mono);font-size:12px;font-weight:500;${r.c?'color:var(--'+r.c.slice(2)+')'	:''}">${r.v}${r.extra||''}</div>
+  </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════
+// VALUATION
+// ═══════════════════════════════════════════════
+function renderVal(d, item) {
+  const val = d.valuation || {};
+  if (item.type==='fund' && val.pe_pct_1y==null) {
+    const msg = '<div style="color:var(--t3);font-family:var(--mono);font-size:12px;padding:20px 0">该基金 PE/PB 指标不适用（商品/债券类）</div>';
+    ['peSt','pbSt','valSum'].forEach(id=>document.getElementById(id).innerHTML=msg);
+    return;
+  }
+  function valChart(id, hist, dates, cur, color) {
+    dC(id);
+    if (!hist?.length) return;
+    charts[id] = mkChart(id,'line',dates?.slice(-hist.length)||[],[
+      {data:hist,borderColor:color,borderWidth:1.5,pointRadius:0,tension:.3,fill:{target:'origin',above:color.replace('#','rgba(').replace(/(..)(..)(..)$/,'0x$1,0x$2,0x$3,.07)')||'rgba(61,144,245,.07)'}},
+      {data:hist.map(()=>cur),borderColor:'rgba(200,216,232,.25)',borderWidth:1,borderDash:[5,4],pointRadius:0},
+    ],{},true);
+  }
+  valChart('peC',val.pe_history,val.pe_dates,val.pe_current,'#3d90f5');
+  valChart('pbC',val.pb_history,val.pb_dates,val.pb_current,'#9b59b6');
+
+  function pctBlock(pct) {
+    if (pct==null) return '<div class="dr"><span class="dl">数据不足</span><span class="dv c-neu">—</span></div>';
+    const cls = pct<30?'pf-low':pct<70?'pf-mid':'pf-high';
+    const color = pct<30?'var(--grn)':pct<70?'var(--gld)':'var(--red)';
+    return `<div class="pctbar"><div class="pctbar-hd"><span>低估 0%</span><span style="color:${color};font-weight:600">${pct}%分位</span><span>高估 100%</span></div>
+      <div class="pctbar-tr"><div class="pctbar-fill ${cls}" style="width:${pct}%"></div></div></div>`;
+  }
+  document.getElementById('peSt').innerHTML =
+    `<div class="dr"><span class="dl">当前 PE</span><span class="dv c-acc">${fn(val.pe_current,1)}</span></div>` +
+    ['1y','3y','5y'].map(y=>`<div class="dr"><span class="dl">${y.toUpperCase()}百分位</span><span class="pct-v" style="color:${val['pe_pct_'+y]<30?'var(--grn)':val['pe_pct_'+y]<70?'var(--gld)':'var(--red)'}">${val['pe_pct_'+y]??'—'}%</span></div>${pctBlock(val['pe_pct_'+y])}`).join('');
+  document.getElementById('pbSt').innerHTML =
+    `<div class="dr"><span class="dl">当前 PB</span><span class="dv c-pur">${fn(val.pb_current,2)}</span></div>` +
+    ['1y','3y','5y'].map(y=>`<div class="dr"><span class="dl">${y.toUpperCase()}百分位</span><span class="pct-v" style="color:${val['pb_pct_'+y]<30?'var(--grn)':val['pb_pct_'+y]<70?'var(--gld)':'var(--red)'}">${val['pb_pct_'+y]??'—'}%</span></div>${pctBlock(val['pb_pct_'+y])}`).join('');
+
+  const verdict = val.valuation_verdict || (val.overall_pct_5y!=null ? (val.overall_pct_5y<30?'历史低估区':val.overall_pct_5y<70?'估值合理':'历史高估区') : '—');
+  document.getElementById('valSum').innerHTML = `
+    <table class="ctbl"><thead><tr><th>指标</th><th>当前值</th><th>1Y百分位</th><th>3Y百分位</th><th>5Y百分位</th><th>5Y均值</th><th>综合判断</th></tr></thead>
+    <tbody>${['pe','pb'].map(m=>`<tr>
+      <td style="color:var(--t2)">${m==='pe'?'PE 市盈率':'PB 市净率'}</td>
+      <td class="${m==='pe'?'c-acc':'c-pur'}">${fn(val[m+'_current'],m==='pe'?1:2)}</td>
+      ${['1y','3y','5y'].map(y=>{const p=val[m+'_pct_'+y];return`<td style="color:${p==null?'var(--t3)':p<30?'var(--grn)':p<70?'var(--gld)':'var(--red)'}">${p??'—'}%</td>`;}).join('')}
+      <td class="c-neu">${fn(val[m+'_mean_5y'],1)}</td>
+      <td>${val[m+'_pct_5y']!=null?`<span style="background:${val[m+'_pct_5y']<30?'var(--grn2)':val[m+'_pct_5y']<70?'var(--gld2)':'var(--red2)'};color:${val[m+'_pct_5y']<30?'var(--grn)':val[m+'_pct_5y']<70?'var(--gld)':'var(--red)'};padding:2px 7px;border-radius:3px;font-size:9px">${val[m+'_pct_5y']<30?'低估':val[m+'_pct_5y']<70?'合理':'高估'}</span>`:'—'}</td>
+    </tr>`).join('')}</tbody></table>
+    <div style="margin-top:10px;padding:9px 12px;background:var(--bg2);border:1px solid var(--b1);border-radius:var(--r);font-size:12px;color:var(--t2)">
+      <strong style="color:var(--t1)">综合估值判断：</strong>${verdict}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════
+// QUANT FACTORS
+// ═══════════════════════════════════════════════
+function renderQuant(d, item) {
+  const ff = d.financial_factors || {};
+  const qs = d.quant_score || {};
+  const ifl = ff.interest_free_liab || {};
+  const gm  = ff.gross_margin || {};
+  const rd  = ff.rd_capitalization || {};
+  const div = ff.dividend || {};
+  const ins = ff.institution || {};
+
+  function qCard(num, title, val, unit, sub, grade, exp, extra='') {
+    const gc = grade && grade!=='N/A' ? `gr-${grade}` : 'gr-NA';
+    return `<div class="qcard">
+      <div class="qcard-hd"><div class="qcard-t">${num} ${title}</div><span class="grade ${gc}">${grade||'N/A'}</span></div>
+      <div class="qcard-v">${val!=null?val+unit:'—'}</div>
+      <div class="qcard-sub">${sub}</div>
+      <div class="qcard-exp">${exp}</div>${extra}
+    </div>`;
+  }
+
+  const iflR = ifl.current_ratio, iflG = ifl.grade, iflA = ifl.advice || '';
+  const gmCV = gm.cv, gmG = gm.grade, gmA = gm.advice || '';
+  const rdR  = rd.capitalization_rate, rdG = rd.grade, rdA = rd.advice || '';
+  const divR = div.payout_ratio, divG = div.grade, divA = div.advice || '';
+  const insS = ins.slope_fund_count, insG = ins.grade, insA = ins.advice || '';
+  const fcf  = ff.fcf != null ? (ff.fcf/1e8).toFixed(2) : null;
+
+  document.getElementById('qgrid').innerHTML = [
+    qCard('①','无息负债比例', iflR!=null?iflR.toFixed(1):null,'%',
+      iflR!=null?`应付:${(ifl.history?.[0]?.accounts_payable||0).toExponential(2)} 预收:${(ifl.history?.[0]?.advance_receipts||0).toExponential(2)}`:'等待财务数据...',
+      iflG, '高比例=产业链话语权强（类金融模式）',
+      iflA?`<div class="warn-pill ${iflG==='A'?'wp-good':iflG==='D'?'wp-bad':'wp-warn'}">${iflA}</div>`:''
+    ),
+    qCard('②','毛利率变异系数CV', gmCV!=null?gmCV.toFixed(1):null,'%',
+      gmCV!=null?`均值:${gm.mean?.toFixed(1)}% 标准差:${gm.std?.toFixed(1)}% 趋势:${gm.trend_dir||'—'}`:'等待财务数据...',
+      gmG, 'CV越小=定价权越强，成本转嫁能力越高（<5% 极优）',
+      gmA?`<div class="warn-pill ${gmG==='A'?'wp-good':gmG==='D'?'wp-bad':'wp-warn'}">${gmA}</div>`:''
+    ),
+    qCard('③','R&D资本化率', rdR!=null?rdR.toFixed(1):null,'%',
+      rdR!=null?`资本化:${(rd.rd_capitalized||0).toExponential(2)} 费用化:${(rd.rd_expense||0).toExponential(2)}`:'等待财务数据...',
+      rdG, '显著高于同行(>1.5x)→警惕利润水分，建议对比行业均值',
+      rdA?`<div class="warn-pill ${rdG==='A'?'wp-good':rdG==='D'?'wp-bad':'wp-warn'}">${rdA}</div>`:''
+    ),
+    qCard('④','股息支付率', divR!=null?divR.toFixed(1):null,'%',
+      divR!=null?`EPS:${fn(div.eps,2)} 年分红:${fn(div.annual_dividend_per_share,4)}`:'等待财务数据...',
+      divG, '30%-70%=健康区间；管理层与股东利益一致',
+      divA?`<div class="warn-pill ${divG==='A'?'wp-good':divG==='D'?'wp-bad':'wp-warn'}">${divA}</div>`:''
+    ),
+    qCard('⑤','机构持仓斜率', insS!=null?insS.toFixed(2):null,' 只/季',
+      insS!=null?`最新:${ins.latest_fund_count}只基金 4Q变化:${ins.pct_change_4q?.toFixed(1)}%`:'等待持仓数据...',
+      insG, '一阶导数>2=持续增持=长线资金认可；<-2=持续减仓需警惕',
+      insA?`<div class="warn-pill ${insG==='A'?'wp-good':insG==='D'?'wp-bad':'wp-warn'}">${insA}</div>`:''
+    ),
+    qCard('FCF','自由现金流', fcf,'亿元',
+      ff.operating_cashflow!=null?`经营CFO:${(ff.operating_cashflow/1e8).toFixed(2)}亿 CAPEX:${((ff.capex||0)/1e8).toFixed(2)}亿`:'等待现金流数据...',
+      ff.fcf!=null?(ff.fcf>0?'A':'D'):null, 'FCF=经营现金流-资本支出，衡量真实造血能力',
+      ff.fcf!=null?`<div class="warn-pill ${ff.fcf>0?'wp-good':'wp-bad'}">${ff.fcf>0?'正向FCF，现金充裕':'负向FCF，需关注融资依赖'}</div>`:''
+    ),
+  ].join('');
+
+  // Score ring
+  const sc = qs.total_score || 50;
+  const scC = sc>=70?'#2ecc71':sc>=50?'#f39c12':'#e74c3c';
+  const circ = 2*Math.PI*27;
+  const off  = circ * (1 - sc/100);
+  document.getElementById('sring').innerHTML = `
+    <div class="ring-svg-wrap">
+      <svg width="70" height="70" viewBox="0 0 70 70">
+        <circle cx="35" cy="35" r="27" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="6"/>
+        <circle cx="35" cy="35" r="27" fill="none" stroke="${scC}" stroke-width="6"
+          stroke-dasharray="${circ.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" stroke-linecap="round"/>
+      </svg>
+      <div class="ring-center"><div class="ring-n" style="color:${scC}">${sc}</div><div class="ring-m">/100</div></div>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:700;color:${scC};margin-bottom:3px">${qs.signal_cn||qs.signal||'—'}</div>
+      <div style="font-size:11px;color:var(--t2)">建议仓位 <span style="font-family:var(--mono);font-size:14px;color:${scC}">${qs.suggested_position??50}%</span></div>
+    </div>`;
+
+  const sbd = qs.score_breakdown || [];
+  document.getElementById('sdims').innerHTML = sbd.map(s=>`
+    <div class="dim-row">
+      <div class="dim-lbl"><span>${s.name}</span><span style="font-family:var(--mono)">${s.score}</span></div>
+      <div class="dim-bar"><div class="dim-fill" style="width:${s.score}%;background:${s.score>=70?'#2ecc71':s.score>=50?'#f39c12':'#e74c3c'}"></div></div>
+    </div>`).join('');
+
+  const warns = qs.warnings || [];
+  document.getElementById('swarn').innerHTML = warns.length
+    ? warns.map(w=>`<div class="warn-pill wp-warn" style="margin-bottom:4px;display:flex">⚠ ${w}</div>`).join('')
+    : '<div style="font-size:11px;color:var(--t3)">暂无风险提示</div>';
+
+  // Gross margin chart
+  dC('gmC');
+  const ghistory = gm.history || [];
+  if (ghistory.length) {
+    const gvals = ghistory.map(h=>h.value);
+    const gdts  = ghistory.map(h=>h.date);
+    charts.gmC = mkChart('gmC','line',gdts,[
+      {label:'毛利率',data:gvals,borderColor:'#3d90f5',borderWidth:2,pointRadius:3,pointBackgroundColor:'#3d90f5',tension:.3,fill:{target:'origin',above:'rgba(61,144,245,.07)'}},
+      {label:'均值',  data:gvals.map(()=>gm.mean||0),borderColor:'rgba(243,156,18,.5)',borderWidth:1.5,borderDash:[5,4],pointRadius:0},
+    ],{y:{ticks:{callback:v=>v+'%'}}},true);
+  }
+  document.getElementById('gmSt').innerHTML = [
+    {l:'均值',  v:fn(gm.mean,2,'%')},
+    {l:'标准差',v:fn(gm.std,2,'%'), c:parseFloat(gm.std)<3?'c-neg':parseFloat(gm.std)<10?'c-neu':'c-pos'},
+    {l:'CV',    v:fn(gm.cv,1,'%'),  c:parseFloat(gm.cv)<5?'c-neg':parseFloat(gm.cv)<15?'c-neu':'c-pos'},
+    {l:'稳定性',v:gm.trend==='stable'?'★ 高稳定':'▲ 波动大',c:gm.trend==='stable'?'c-neg':'c-pos'},
+  ].map(r=>`<div class="dr"><span class="dl">${r.l}</span><span class="dv ${r.c||''}">${r.v}</span></div>`).join('');
+
+  // Institution holdings chart
+  dC('instC');
+  const ihist = (ins.history || []).sort((a,b)=>a.date>b.date?1:-1);
+  if (ihist.length) {
+    charts.instC = mkChart('instC','bar',ihist.map(h=>h.date),[
+      {label:'持仓基金数',data:ihist.map(h=>h.fund_count),backgroundColor:'rgba(61,144,245,.6)',borderRadius:3,borderSkipped:false},
+    ],{y:{ticks:{callback:v=>v+'只'}},x:{grid:{display:false}}},true);
+  }
+  document.getElementById('instSt').innerHTML = [
+    {l:'最新持仓',v:(ins.latest_fund_count??'—')+'只'},
+    {l:'季度斜率',v:fn(ins.slope_fund_count,2)+'只/季',c:ins.slope_fund_count>0?'c-neg':'c-pos'},
+    {l:'4Q变化', v:fn(ins.pct_change_4q,1,'%'),c:ins.pct_change_4q>0?'c-neg':'c-pos'},
+    {l:'趋势',   v:ins.trend||'—'},
+  ].map(r=>`<div class="dr"><span class="dl">${r.l}</span><span class="dv ${r.c||''}">${r.v}</span></div>`).join('');
+}
+
+// ═══════════════════════════════════════════════
+// INDUSTRY NEUTRALIZATION
+// ═══════════════════════════════════════════════
+async function runIndustry() {
+  const codes  = document.getElementById('indCodes').value.trim();
+  const metric = document.getElementById('indMetric').value;
+  if (!codes) return;
+  const higher = !['pe_ttm','pb','pe'].includes(metric);
+  setLoad(true);
+  const d = await get(`/api/industry/compare?codes=${encodeURIComponent(codes)}&metric=${metric}&higher_is_better=${higher}`);
+  setLoad(false);
+  if (!d) return;
+
+  const results = d.results || [];
+  document.getElementById('indResult').innerHTML = `
+    <table class="ctbl"><thead><tr><th>代码</th><th>指标值</th><th>组内百分位</th><th>组内排名</th><th>中位数</th><th>是否Top 20%</th></tr></thead>
+    <tbody>${results.map(r=>`<tr>
+      <td class="c-acc">${r.code}</td>
+      <td>${r.value!=null?r.value.toFixed(2):'—'}</td>
+      <td style="color:${r.percentile>=80?'var(--grn)':r.percentile>=50?'var(--gld)':'var(--red)'}">${r.percentile??'—'}%</td>
+      <td class="c-acc">${r.rank??'—'} / ${r.total??'—'}</td>
+      <td class="c-neu">${r.median??fn(d.group_median,2)}</td>
+      <td>${r.is_top20pct?'<span style="background:var(--grn2);color:var(--grn);padding:1px 7px;border-radius:3px;font-size:10px">★ TOP 20%</span>':'—'}</td>
+    </tr>`).join('')}</tbody></table>
+    <div style="margin-top:8px;font-size:11px;color:var(--t3)">组内均值: ${fn(d.group_mean,2)} · 中位数: ${fn(d.group_median,2)} · Top 20%: ${d.top20pct?.join(', ')||'无'}</div>`;
+
+  // Bar chart
+  dC('indC');
+  charts.indC = mkChart('indC','bar',results.map(r=>r.code),[
+    {label:'组内百分位',data:results.map(r=>r.percentile??0),backgroundColor:results.map(r=>r.percentile>=80?'rgba(46,204,113,.7)':r.percentile>=50?'rgba(243,156,18,.7)':'rgba(231,76,60,.7)'),borderRadius:4,borderSkipped:false},
+  ],{y:{min:0,max:100,ticks:{callback:v=>v+'%'}},x:{grid:{display:false}}},false);
+}
+
+// ═══════════════════════════════════════════════
+// COMPARE — multi-stock
+// ═══════════════════════════════════════════════
+
+// State: list of {code, name, type, data, color}
+let cmpItems   = [];
+let cmpYears   = 1;
+const CMP_MAX  = 8;
+
+function setCmpRng(el, yrs) {
+  document.querySelectorAll('#cmpRngPills .rp').forEach(p => p.classList.remove('on'));
+  el.classList.add('on');
+  cmpYears = yrs;
+  cmpReloadAll();
+}
+
+function cmpQuick(code, name, type) {
+  document.getElementById('cmpAddCode').value = code;
+  document.getElementById('cmpAddType').value = type;
+  cmpAdd(code, name, type);
+}
+
+async function cmpAdd(overrideCode, overrideName, overrideType) {
+  const code = (overrideCode || document.getElementById('cmpAddCode').value.trim()).toUpperCase();
+  const type = overrideType || document.getElementById('cmpAddType').value;
+  if (!code) return;
+  if (cmpItems.find(i => i.code === code)) {
+    document.getElementById('cmpStatus').textContent = `${code} 已在列表中`;
+    return;
+  }
+  if (cmpItems.length >= CMP_MAX) {
+    document.getElementById('cmpStatus').textContent = `最多对比 ${CMP_MAX} 只标的`;
+    return;
+  }
+
+  const color = C[cmpItems.length % C.length];
+  const name  = overrideName || code;
+  cmpItems.push({ code, name, type, data: null, color, loading: true });
+  renderCmpList();
+  document.getElementById('cmpAddCode').value = '';
+
+  await cmpFetchOne(cmpItems.length - 1);
+  renderCmpChart();
+  renderCmpTable();
+}
+
+async function cmpFetchOne(idx) {
+  const item = cmpItems[idx];
+  if (!item) return;
+  const statusEl = document.getElementById('cmpStatus');
+  statusEl.textContent = `加载 ${item.code}...`;
+
+  try {
+    let d;
+    if (item.type === 'fund') {
+      const pmap = {1:'1年', 3:'3年', 5:'5年'};
+      d = await get(`/api/fund/${item.code}?period=${encodeURIComponent(pmap[cmpYears]||'1年')}`);
+    } else {
+      d = await get(`/api/stock/${item.code}?years=${cmpYears}&include_financial=false`);
+    }
+    if (d) {
+      item.data  = d;
+      item.name  = d.name || item.code;
+      item.loading = false;
+      statusEl.textContent = '';
+    }
+  } catch(e) {
+    item.loading = false;
+    item.error   = e.message;
+    statusEl.textContent = `${item.code} 加载失败`;
+  }
+  renderCmpList();
+}
+
+async function cmpReloadAll() {
+  if (!cmpItems.length) return;
+  for (let i = 0; i < cmpItems.length; i++) {
+    cmpItems[i].loading = true;
+    cmpItems[i].data = null;
+  }
+  renderCmpList();
+  renderCmpChart();
+
+  for (let i = 0; i < cmpItems.length; i++) {
+    await cmpFetchOne(i);
+  }
+  renderCmpChart();
+  renderCmpTable();
+}
+
+function cmpRemove(code) {
+  cmpItems = cmpItems.filter(i => i.code !== code);
+  // Re-assign colors in order
+  cmpItems.forEach((it, i) => { it.color = C[i % C.length]; });
+  renderCmpList();
+  renderCmpChart();
+  renderCmpTable();
+}
+
+function cmpClearAll() {
+  cmpItems = [];
+  renderCmpList();
+  dC('cmpC');
+  document.getElementById('cmpLegend').innerHTML = '';
+  document.getElementById('cmpTbl').innerHTML =
+    '<div style="font-family:var(--mono);font-size:11px;color:var(--t3);padding:12px 0">在上方输入代码并点击「+ 添加」以开始多标的对比</div>';
+  document.getElementById('cmpStatus').textContent = '';
+}
+
+function renderCmpList() {
+  const el = document.getElementById('cmpList');
+  if (!cmpItems.length) {
+    el.innerHTML = '<span style="font-family:var(--mono);font-size:10px;color:var(--t3)">暂无标的，请添加</span>';
+    return;
+  }
+  el.innerHTML = cmpItems.map(item => `
+    <div style="display:inline-flex;align-items:center;gap:5px;background:var(--bg2);
+      border:1px solid ${item.color}44;border-radius:4px;padding:3px 8px 3px 6px;
+      font-family:var(--mono);font-size:10px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:${item.color};flex-shrink:0"></div>
+      <span style="color:var(--t1)">${item.name.slice(0,10)}</span>
+      <span style="color:var(--t3)">${item.code}</span>
+      ${item.loading ? '<span style="color:var(--gld)">⟳</span>' : ''}
+      ${item.error   ? '<span style="color:var(--red)" title="' + item.error + '">✗</span>' : ''}
+      <span style="cursor:pointer;color:var(--t3);margin-left:2px" onclick="cmpRemove('${item.code}')">✕</span>
+    </div>`).join('');
+}
+
+function renderCmpChart() {
+  dC('cmpC');
+  const loaded = cmpItems.filter(i => i.data && !i.loading);
+  if (!loaded.length) return;
+
+  // Align all series to same start date (earliest common date or each own start)
+  const allDates = loaded.map(i => (i.data.dates || []));
+  // Use each item's own baseline (index 0 = 100)
+  const datasets = loaded.map(item => {
+    const prices = item.data.nav || item.data.close || [];
+    const dates  = item.data.dates || [];
+    const base   = prices[0] || 1;
+    const norm   = prices.map(v => +(v / base * 100).toFixed(2));
+    return {
+      label:       item.name.slice(0, 14),
+      data:        norm,
+      borderColor: item.color,
+      borderWidth: 2,
+      pointRadius: 0,
+      tension:     0.3,
+      fill:        false,
+      _dates:      dates,  // store for tooltip
+    };
+  });
+
+  // Use longest date array as labels (each series may have different lengths)
+  const longestIdx = allDates.reduce((best, d, i) => d.length > allDates[best].length ? i : best, 0);
+  const labels = allDates[longestIdx];
+
+  charts.cmpC = new Chart(document.getElementById('cmpC'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      ...baseOpts({ y: { ticks: { callback: v => v.toFixed(0) } } }),
+      plugins: {
+        ...basePlug(),
+        legend: { display: false },
+        tooltip: {
+          ...basePlug().tooltip,
+          mode: 'index', intersect: false,
+          callbacks: {
+            title:  ctx => ctx[0]?.label || '',
+            label:  ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)}`,
+          }
+        }
+      }
+    }
+  });
+
+  // Custom legend
+  document.getElementById('cmpLegend').innerHTML = loaded.map(item => {
+    const d = item.data;
+    const ret1y = d.returns?.['1y'];
+    const retStr = ret1y != null ? ` (${ret1y > 0 ? '+' : ''}${ret1y.toFixed(1)}%)` : '';
+    return `<div style="display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--t2)">
+      <div style="width:16px;height:2px;background:${item.color};border-radius:1px"></div>
+      <span>${item.name.slice(0,10)}</span>
+      <span style="color:${ret1y >= 0 ? 'var(--grn)' : 'var(--red)'}">${retStr}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderCmpTable() {
+  const loaded = cmpItems.filter(i => i.data && !i.loading);
+  if (!loaded.length) {
+    document.getElementById('cmpTbl').innerHTML =
+      '<div style="font-family:var(--mono);font-size:11px;color:var(--t3);padding:12px 0">加载完成后显示对比表</div>';
+    return;
+  }
+
+  const rows = loaded.map(item => {
+    const d   = item.data;
+    const r   = d.returns || {};
+    const dd  = d.drawdown || {};
+    const qs  = d.quant_score || {};
+    const nav = d.latest?.nav ?? d.latest?.close;
+    const sig = qs.signal || d.signal || 'hold';
+    const sigClr = sig === 'buy' ? 'var(--grn)' : sig === 'sell' ? 'var(--red)' : 'var(--gld)';
+    const sigBg  = sig === 'buy' ? 'var(--grn2)' : sig === 'sell' ? 'var(--red2)' : 'var(--gld2)';
+
+    return `<tr>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="width:8px;height:8px;border-radius:50%;background:${item.color};flex-shrink:0"></div>
+          <span>${item.name.slice(0, 12)}</span>
+        </div>
+      </td>
+      <td class="c-acc">${item.code}</td>
+      <td>${nav != null ? nav.toFixed(item.type === 'fund' ? 4 : 2) : '—'}</td>
+      ${['1m','3m','1y','3y'].map(k => {
+        const v = r[k];
+        return `<td style="color:${v != null ? (v >= 0 ? 'var(--grn)' : 'var(--red)') : 'var(--t3)'}">
+          ${v != null ? (v > 0 ? '+' : '') + v.toFixed(1) + '%' : '—'}</td>`;
+      }).join('')}
+      <td class="${rc(r.annualized)}">${r.annualized != null ? (r.annualized > 0 ? '+' : '') + r.annualized.toFixed(1) + '%' : '—'}</td>
+      <td class="c-pos">${fn(dd.max_drawdown, 1, '%')}</td>
+      <td class="c-acc">${fn(r.sharpe, 2)}</td>
+      <td style="color:${scoreColor(qs.total_score) === 'c-neg' ? 'var(--grn)' : scoreColor(qs.total_score) === 'c-pos' ? 'var(--red)' : 'var(--gld)'}">
+        ${qs.total_score ?? '—'}
+      </td>
+      <td><span style="background:${sigBg};color:${sigClr};padding:1px 7px;border-radius:3px;font-size:9px">${sig.toUpperCase()}</span></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('cmpTbl').innerHTML = `
+    <table class="ctbl">
+      <thead><tr>
+        <th>标的</th><th>代码</th><th>最新价/净值</th>
+        <th>1M</th><th>3M</th><th>1Y</th><th>3Y</th>
+        <th>年化</th><th>最大回撤</th><th>夏普</th><th>评分</th><th>信号</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// Called when switching to compare tab
+function renderCmp() {
+  // If no items yet, auto-add the currently selected watchlist item as a starting point
+  if (!cmpItems.length && activeData && wl[activeIdx]) {
+    const item = wl[activeIdx];
+    const existing = { code: item.code, name: item.name, type: item.type,
+                       data: activeData, color: C[0], loading: false };
+    cmpItems.push(existing);
+    renderCmpList();
+    renderCmpChart();
+    renderCmpTable();
+  }
+}
+
+
+// ═══════════════════════════════════════════════
+// WATCHLIST
+// ═══════════════════════════════════════════════
+function buildWL() {
+  document.getElementById('wl').innerHTML = wl.map((item,i)=>{
+    const nav=item.nav||0, prev=item.prev||nav;
+    const chg=prev?(nav-prev)/prev*100:0;
+    const isUp=chg>=0;
+    return `<div class="wi ${i===activeIdx?'on':''}" onclick="selItem(${i})">
+      <div class="wi-r1">
+        <div class="wi-nm">${item.name}</div>
+        <div class="wi-px ${isUp?'up':'dn'}">${nav.toFixed(item.type==='fund'?4:2)}</div>
+      </div>
+      <div class="wi-r2">
+        <div class="wi-cd">${item.code} · ${item.type==='fund'?'F':'S'}</div>
+        <div class="wi-act">
+          <div class="wi-chg ${isUp?'up':'dn'}">${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)}%</div>
+          <div class="sdot ${item.signal||'hold'}"></div>
+          <button class="wi-del" title="删除" onclick="delWL(event,${i})">×</button>
+        </div>
+      </div>
+    </div>`;}).join('');
+}
+
+function selItem(i) { activeIdx=i; buildWL(); loadData(); }
+function setType(el,t) { document.querySelectorAll('.tt').forEach(e=>e.classList.remove('on')); el.classList.add('on'); curType=t; }
+
+function delWL(event, i) {
+  event.stopPropagation();
+  if (i < 0 || i >= wl.length) return;
+  const removedActive = i === activeIdx;
+  wl.splice(i, 1);
+  if (activeIdx >= wl.length) activeIdx = Math.max(0, wl.length - 1);
+  if (i < activeIdx) activeIdx -= 1;
+  saveWL();
+  buildWL();
+  if (!wl.length) {
+    activeData = null;
+    document.getElementById('ov-nm').textContent = '— 选择或搜索标的 —';
+    document.getElementById('ov-sub').innerHTML = '<span>在左侧输入基金代码（如 161725）或 A 股代码（如 600519）</span>';
+    document.getElementById('ov-px').textContent = '—';
+    document.getElementById('ov-chg').textContent = '—';
+    document.getElementById('mstrip').innerHTML = '';
+    return;
+  }
+  if (removedActive) loadData();
+}
+
+async function doSearch() {
+  const q = document.getElementById('srchQ').value.trim();
+  if (!q) return;
+  const inferredType = inferAssetType(q, curType);
+  const searchType = curType === 'both' ? 'both' : inferredType;
+  if (!apiOk) { addToWL(q, q, inferredType, 1, 1); document.getElementById('srchQ').value=''; return; }
+  const d = await get(`/api/search?q=${encodeURIComponent(q)}&type=${searchType}`);
+  if (d?.results?.length) {
+    const r = d.results.find(x => x.type === inferredType) || d.results[0];
+    addToWL(r.code, r.name, inferAssetType(r.code, r.type || inferredType), 1, 1);
+  } else {
+    addToWL(q, q, inferredType, 1, 1);
+  }
+  document.getElementById('srchQ').value = '';
+}
+
+function addToWL(code, name, type, nav, prev) {
+  type = inferAssetType(code, type);
+  const ex = wl.findIndex(w=>w.code===code && w.type===type);
+  if (ex>=0) { selItem(ex); return; }
+  wl.push({code,name,type,nav,prev:prev||nav,signal:'hold'});
+  saveWL(); activeIdx=wl.length-1; buildWL(); loadData();
+}
+
+function manualUpd() {
+  const code=document.getElementById('mCode').value.trim();
+  const nav=parseFloat(document.getElementById('mNav').value);
+  if (!code||isNaN(nav)) return;
+  const i=wl.findIndex(w=>w.code===code);
+  if (i>=0) { wl[i].prev=wl[i].nav; wl[i].nav=nav; saveWL(); buildWL(); if(i===activeIdx&&activeData) renderOv(activeData,wl[i]); }
+  else addToWL(code,code,curType,nav,nav);
+  document.getElementById('mCode').value=''; document.getElementById('mNav').value='';
+}
+
+// ═══════════════════════════════════════════════
+// TAB / RANGE
+// ═══════════════════════════════════════════════
+function goTab(el, tab) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on')); el.classList.add('on');
+  ['ov','tech','val','quant','ind','cmp'].forEach(t=>{
+    const e=document.getElementById('t-'+t); if(e) e.style.display=t===tab?'':'none';
+  });
+  curTab=tab;
+  // Compare tab doesn't need activeData - it manages its own state
+  if (tab==='cmp') { renderCmp(); return; }
+  if (!activeData) return;
+  const item=wl[activeIdx];
+  setLoad(true);
+  setTimeout(()=>{
+    if(tab==='tech') renderTech(activeData,item);
+    else if(tab==='val') renderVal(activeData,item);
+    else if(tab==='quant') renderQuant(activeData,item);
+    setLoad(false);
+  },120);
+}
+
+function setRng(el,r) {
+  document.querySelectorAll('.rp').forEach(p=>p.classList.remove('on')); el.classList.add('on');
+  curRng=r; loadData();
+}
+
+// ═══════════════════════════════════════════════
+// AI
+// ═══════════════════════════════════════════════
+function buildCtx() {
+  if (!activeData) return '暂无数据';
+  const item=wl[activeIdx], d=activeData;
+  const qs=d.quant_score||{}, r=d.returns||{}, dd=d.drawdown||{}, v=d.valuation||{}, ff=d.financial_factors||{};
+  const gm=ff.gross_margin||{}, ifl=ff.interest_free_liab||{}, div=ff.dividend||{}, ins=ff.institution||{};
+  return `【标的】${item.name}(${item.code}) ${item.type==='fund'?'基金':'股票'}
+当前价格: ${d.latest?.nav??d.latest?.close??'—'} · 日期: ${d.latest?.date||'—'}
+综合评分: ${qs.total_score??'—'}/100 · 信号: ${qs.signal_cn||qs.signal||'—'} · 建议仓位: ${qs.suggested_position??'—'}%
+夏普: ${fn(r.sharpe,2)} · 卡尔马: ${fn(r.calmar,2)} · 年化波动: ${fn(r.volatility_annual,1,'%')}
+1M:${fret(r['1m'])} 1Y:${fret(r['1y'])} 3Y:${fret(r['3y'])} 自成立:${fret(r.since_inception)}
+最大回撤: ${fn(dd.max_drawdown,1,'%')} · 当前回撤: ${fn(dd.current_drawdown,1,'%')}
+PE(TTM): ${fn(v.pe_ttm,1)} (5Y百分位:${v.pe_pct_5y??'—'}%) · PB: ${fn(v.pb,2)} (5Y百分位:${v.pb_pct_5y??'—'}%)
+【5大量化因子】
+① 无息负债比例: ${fn(ifl.current_ratio,1,'%')} [${ifl.grade||'—'}] · ${ifl.advice||''}
+② 毛利率CV: ${fn(gm.cv,1,'%')} 均值:${fn(gm.mean,1,'%')} [${gm.grade||'—'}] · ${gm.advice||''}
+③ 股息支付率: ${fn(div.payout_ratio,1,'%')} [${div.grade||'—'}]
+④ 机构持仓斜率: ${fn(ins.slope_fund_count,2)+'只/季'} [${ins.grade||'—'}] · ${ins.advice||''}
+⑤ 自由现金流: ${ff.fcf!=null?(ff.fcf/1e8).toFixed(2)+'亿':'—'}
+${qs.warnings?.length?'风险提示: '+qs.warnings.join('；'):''}`;
+}
+
+async function runAI(customQ) {
+  const q = customQ || document.getElementById('aiQ').value.trim() || '请对当前标的做综合分析';
+  const btn=document.getElementById('aiBtn'), dots=document.getElementById('aiDots'), out=document.getElementById('aiOut');
+  document.getElementById('aiSt').textContent='分析中...';
+  btn.disabled=true; dots.classList.add('on'); out.classList.remove('on');
+
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514', max_tokens:1000,
+        system:`你是专业量化投资分析师，专注A股与公募基金。用简洁专业中文回复，200字以内。
+关键词用HTML标注：买入信号<span class="at at-buy">买入</span>，卖出<span class="at at-sell">卖出</span>，持有<span class="at at-hold">持有</span>，数值<span class="at at-info">值</span>。基于真实数据分析，避免空泛。`,
+        messages:[{role:'user',content:`【实时数据】\n${buildCtx()}\n\n【问题】${q}`}]
+      })
+    });
+    const data = await r.json();
+    out.innerHTML = data.content?.[0]?.text || '分析失败，请重试';
+    document.getElementById('aiSt').textContent='完成';
+  } catch(e) {
+    out.innerHTML=`<span style="color:var(--t3)">分析服务暂时不可用: ${e.message}</span>`;
+    document.getElementById('aiSt').textContent='失败';
+  }
+  dots.classList.remove('on'); out.classList.add('on'); btn.disabled=false;
+  document.getElementById('aiQ').value='';
+}
+function runQuick(el) { runAI(el.textContent); }
+
+// ═══════════════════════════════════════════════
+// MAIN CHART ENGINE — crosshair + zoom + brush
+// ═══════════════════════════════════════════════
+
+// ── Crosshair tooltip ─────────────────────────
+const TT = {
+  el: null, date: null, rows: null,
+  init() {
+    this.el   = document.getElementById('chartTooltip');
+    this.date = document.getElementById('ctDate');
+    this.rows = document.getElementById('ctRows');
+  },
+  show(x, y, label, items) {
+    if (!this.el) this.init();
+    this.date.textContent = label;
+    this.rows.innerHTML = items.map(it =>
+      `<div class="ct-row"><div class="ct-dot" style="background:${it.color}"></div><span class="ct-lbl">${it.label}</span><span class="ct-val">${it.value}</span></div>`
+    ).join('');
+    const W = window.innerWidth, H = window.innerHeight;
+    const tw = 200, th = 36 + items.length * 22;
+    let tx = x + 16, ty = y - th / 2;
+    if (tx + tw > W - 8) tx = x - tw - 16;
+    if (ty < 8) ty = 8;
+    if (ty + th > H - 8) ty = H - th - 8;
+    this.el.style.left = tx + 'px';
+    this.el.style.top  = ty + 'px';
+    this.el.classList.add('show');
+  },
+  hide() { if (this.el) this.el.classList.remove('show'); }
+};
+
+// ── Crosshair plugin (vertical line on canvas) ─
+const crosshairPlugin = {
+  id: 'crosshairLine',
+  afterDraw(chart) {
+    if (chart._crosshairX == null) return;
+    const { ctx, chartArea: { top, bottom } } = chart;
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(140,180,220,0.3)';
+    ctx.lineWidth = 1;
+    ctx.moveTo(chart._crosshairX, top);
+    ctx.lineTo(chart._crosshairX, bottom);
+    ctx.stroke();
+    ctx.restore();
+  }
+};
+
+// ── Build / update main chart ─────────────────
+// KEY DESIGN: we NEVER destroy+recreate the main chart for zoom/brush changes.
+// Instead we just update chart.data + call update('none') which avoids
+// the Chart.js resize-observer loop that caused the infinite stretch.
+
+function buildMainChart(dates, prices, ch, tr={}) {
+  // Store globally for window buttons and brush
+  window._mainDates  = dates;
+  window._mainPrices = prices;
+  window._mainCh     = ch;
+  window._mainTR     = tr || {};
+  window._mainWinStart = 0;
+  window._mainWinEnd   = dates.length - 1;
+
+  const maxVal = Math.max(...prices.filter(Boolean));
+  const yDec   = maxVal >= 100 ? 2 : maxVal >= 10 ? 3 : 4;
+  window._mainYDec = yDec;
+
+  const canvas = document.getElementById('mainC');
+
+  // Destroy only when first building (data switch), not during zoom
+  if (charts.mainC) { charts.mainC.destroy(); delete charts.mainC; }
+
+  charts.mainC = new Chart(canvas, {
+    type: 'line',
+    plugins: [crosshairPlugin],
+    data: {
+      labels: dates,
+      datasets: [
+        { label:'价格',     data: prices,       borderColor:'#3d90f5',               borderWidth:2.5, pointRadius:0, tension:.3, fill:false,  order:1 },
+        { label:'+20%上轨', data: ch.upper||[], borderColor:'rgba(231,76,60,.55)',    borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:.3, fill:false },
+        { label:'趋势中轨', data: ch.mid||[],   borderColor:'rgba(200,216,232,.2)',   borderWidth:1,   pointRadius:0, tension:.3, fill:false },
+        { label:'-20%下轨', data: ch.lower||[], borderColor:'rgba(46,204,113,.55)',   borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:.3, fill:'2', backgroundColor:'rgba(46,204,113,.05)' },
+        { label:'参考持仓', data: tr.reference_position||[], yAxisID:'y1', borderColor:'rgba(201,120,95,.85)', backgroundColor:'rgba(201,120,95,.12)', borderWidth:1.6, pointRadius:0, stepped:true, tension:0, fill:true, order:3 },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 260 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend:  { display: false },
+        tooltip: { enabled: false },
+        zoom: {
+          pan:  { enabled: true, mode: 'x', onPanComplete: ({ chart }) => onViewChanged(chart) },
+          zoom: {
+            wheel: { enabled: true, speed: 0.08 },
+            pinch: { enabled: true },
+            mode:  'x',
+            onZoomComplete: ({ chart }) => onViewChanged(chart)
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color:'#506070', font:{ family:"'JetBrains Mono'", size:10 }, maxTicksLimit:8 }, grid: { color:'rgba(88,140,200,.05)' } },
+        y: { position:'left', ticks: { color:'#506070', font:{ family:"'JetBrains Mono'", size:10 }, callback: v => v.toFixed(yDec) }, grid: { color:'rgba(88,140,200,.06)' } },
+        y1:{ position:'right', min:0, max:1, ticks:{ color:'#8a6a60', font:{ family:"'JetBrains Mono'", size:10 }, callback:v=>v.toFixed(1) }, grid:{ drawOnChartArea:false } }
+      },
+      onHover: (evt, _, chart) => handleMainHover(evt, chart)
+    }
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    TT.hide();
+    if (charts.mainC) { charts.mainC._crosshairX = null; charts.mainC.update('none'); }
+  });
+
+  setMainWindow(0, dates.length - 1, false);
+}
+
+// Apply a visible window [startIdx, endIdx] to the existing main chart
+// by updating dataset slices and calling update('none') — NO chart recreation.
+function setMainWindow(startIdx, endIdx, animate) {
+  const chart  = charts.mainC;
+  if (!chart) return;
+  const dates  = window._mainDates  || [];
+  const prices = window._mainPrices || [];
+  const ch     = window._mainCh     || {};
+  const tr     = window._mainTR     || {};
+
+  const s = Math.max(0, startIdx);
+  const e = Math.min(dates.length - 1, endIdx);
+  window._mainWinStart = s;
+  window._mainWinEnd   = e;
+
+  chart.data.labels        = dates.slice(s, e + 1);
+  chart.data.datasets[0].data = prices.slice(s, e + 1);
+  chart.data.datasets[1].data = (ch.upper||[]).slice(s, e + 1);
+  chart.data.datasets[2].data = (ch.mid||[]).slice(s, e + 1);
+  chart.data.datasets[3].data = (ch.lower||[]).slice(s, e + 1);
+  if (chart.data.datasets[4]) {
+    chart.data.datasets[4].data = (tr.reference_position||[]).slice(s, e + 1);
+  }
+
+  // Recompute y precision for the visible slice
+  const vis = prices.slice(s, e + 1).filter(Boolean);
+  if (vis.length) {
+    const maxV = Math.max(...vis);
+    const yDec = maxV >= 100 ? 2 : maxV >= 10 ? 3 : 4;
+    window._mainYDec = yDec;
+    chart.options.scales.y.ticks.callback = v => v.toFixed(yDec);
+  }
+
+  chart.update(animate ? undefined : 'none');
+  updateZoomInfo(s, e);
+  paintBrushOverlay(s, e);
+}
+
+// ── Hover handler ─────────────────────────────
+function handleMainHover(evt, chart) {
+  if (!evt.native) return;
+  const points = chart.getElementsAtEventForMode(evt.native, 'index', { intersect: false }, false);
+  if (!points.length) { TT.hide(); chart._crosshairX = null; chart.update('none'); return; }
+
+  const idx  = points[0].index;
+  const xPos = points[0].element.x;
+  chart._crosshairX = xPos;
+  chart.update('none');
+
+  const yDec   = window._mainYDec || 4;
+  const labels = chart.data.labels;
+  const ds     = chart.data.datasets;
+  const colors = ['#3d90f5','rgba(231,76,60,.9)','rgba(200,216,232,.7)','rgba(46,204,113,.9)','rgba(201,120,95,.95)'];
+
+  const items = ds.map((d, i) => ({
+    label: d.label,
+    color: colors[i],
+    value: d.data[idx] != null ? Number(d.data[idx]).toFixed(d.yAxisID==='y1'?2:yDec) : null
+  })).filter(it => it.value != null);
+
+  const rect = evt.native.target.getBoundingClientRect();
+  TT.show(rect.left + xPos, rect.top + evt.native.offsetY, labels[idx] || '', items);
+}
+
+// ── Zoom callbacks ────────────────────────────
+function onViewChanged(chart) {
+  // chartjs-plugin-zoom operates on scale min/max (float indices)
+  const xScale = chart.scales.x;
+  const allDates = window._mainDates || [];
+  const s = Math.max(0, Math.round(xScale.min ?? 0));
+  const e = Math.min(allDates.length - 1, Math.round(xScale.max ?? allDates.length - 1));
+  window._mainWinStart = s;
+  window._mainWinEnd   = e;
+  updateZoomInfo(s, e);
+  paintBrushOverlay(s, e);
+}
+
+function updateZoomInfo(s, e) {
+  const dates = window._mainDates || [];
+  const el    = document.getElementById('zoomInfo');
+  if (!el) return;
+  if (s === 0 && e === dates.length - 1) {
+    el.textContent = `全部 ${dates.length} 个交易日`;
+  } else {
+    el.textContent = `${dates[s] || ''} → ${dates[e] || ''}  (${e - s + 1}日)`;
+  }
+}
+
+function zoomReset() {
+  if (!charts.mainC) return;
+  const dates = window._mainDates || [];
+  setMainWindow(0, dates.length - 1, true);
+  paintBrushOverlay(0, dates.length - 1);
+  document.getElementById('brushInfo').textContent = '';
+}
+
+function zoomWindow(days) {
+  const dates = window._mainDates || [];
+  if (!dates.length) return;
+  const e = dates.length - 1;
+  const s = Math.max(0, e - days);
+  setMainWindow(s, e, true);
+  paintBrushOverlay(s, e);
+  document.getElementById('brushInfo').textContent =
+    `${dates[s]} → ${dates[e]}`;
+}
+
+// ── Brush navigator ───────────────────────────
+// Architecture: single Chart.js instance (charts.brush) for the overview.
+// Selection overlay is painted on a separate 2d canvas layered on top.
+// This avoids ANY Chart.js resize involvement for the overlay drawing.
+
+let brushState = { dragging:false, resizing:null, sel:null };
+let _brushOverlayCtx = null;   // 2d ctx of the overlay canvas
+
+function buildBrushChart(dates, prices) {
+  // Destroy old instance cleanly
+  if (charts.brush) { charts.brush.destroy(); delete charts.brush; }
+
+  const wrap = document.getElementById('brushCanvasWrap');
+  if (!wrap) return;
+
+  // Re-create canvases fresh (avoids stale Chart.js instances holding old refs)
+  wrap.innerHTML = `
+    <canvas id="brushC"
+      style="position:absolute;top:0;left:0;width:100%;height:100%;display:block"></canvas>
+    <canvas id="brushOverlay"
+      style="position:absolute;top:0;left:0;width:100%;height:100%;display:block;pointer-events:none;z-index:2"></canvas>
+    <canvas id="brushHit"
+      style="position:absolute;top:0;left:0;width:100%;height:100%;display:block;opacity:0;z-index:3;cursor:crosshair"></canvas>`;
+
+  const bc = document.getElementById('brushC');
+
+  // CRITICAL: set explicit pixel dimensions before Chart.js init
+  // so responsive mode has a stable reference and doesn't loop
+  const wrapRect = wrap.getBoundingClientRect();
+  const W = Math.round(wrapRect.width) || 600;
+  const H = 48;
+  bc.width  = W;  bc.height  = H;
+  bc.style.width  = '100%';
+  bc.style.height = H + 'px';
+
+  charts.brush = new Chart(bc, {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [{ data: prices, borderColor:'rgba(61,144,245,.45)', borderWidth:1,
+                   pointRadius:0, fill:{ target:'origin', above:'rgba(61,144,245,.05)' }, tension:.3 }]
+    },
+    options: {
+      responsive: false,           // ← CRITICAL: prevents resize loop on brush chart
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend:{ display:false }, tooltip:{ enabled:false } },
+      scales: { x:{ display:false }, y:{ display:false } }
+    }
+  });
+
+  // Overlay canvas for selection drawing
+  const ov  = document.getElementById('brushOverlay');
+  ov.width  = W; ov.height = H;
+  _brushOverlayCtx = ov.getContext('2d');
+
+  // Hit canvas captures mouse events
+  const hit = document.getElementById('brushHit');
+  hit.width  = W; hit.height = H;
+  initBrushEvents(hit, dates);
+
+  clearBrushSelection();
+}
+
+function paintBrushOverlay(winStart, winEnd) {
+  const ctx   = _brushOverlayCtx;
+  const chart = charts.brush;
+  if (!ctx || !chart) return;
+
+  const dates = window._mainDates || [];
+  const total = dates.length;
+  if (!total) return;
+
+  const { left, right, top, bottom } = chart.chartArea;
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const sx = left  + (winStart / (total - 1)) * (right - left);
+  const ex = left  + (winEnd   / (total - 1)) * (right - left);
+
+  // Dim unselected regions
+  ctx.fillStyle = 'rgba(7,9,13,.58)';
+  ctx.fillRect(left, 0, sx - left, H);
+  ctx.fillRect(ex,   0, right - ex, H);
+
+  // Selected region tint
+  ctx.fillStyle = 'rgba(61,144,245,.1)';
+  ctx.fillRect(sx, 0, ex - sx, H);
+
+  // Handles
+  ctx.strokeStyle = 'rgba(61,144,245,.85)';
+  ctx.lineWidth = 1.5;
+  [sx, ex].forEach(xh => {
+    ctx.beginPath(); ctx.moveTo(xh, 0); ctx.lineTo(xh, H); ctx.stroke();
+    // Grip dots
+    ctx.fillStyle = 'rgba(61,144,245,.85)';
+    ctx.beginPath(); ctx.arc(xh, H/2, 3, 0, Math.PI*2); ctx.fill();
+  });
+}
+
+function clearBrushSelection() {
+  paintBrushOverlay(0, (window._mainDates||[]).length - 1);
+}
+
+function initBrushEvents(hitCanvas, dates) {
+  function pixToIdx(px) {
+    const chart = charts.brush;
+    if (!chart) return 0;
+    const { left, right } = chart.chartArea;
+    const ratio = Math.max(0, Math.min(1, (px - left) / (right - left)));
+    return Math.round(ratio * (dates.length - 1));
+  }
+
+  function getEdge(px) {
+    const ws = window._mainWinStart ?? 0;
+    const we = window._mainWinEnd   ?? dates.length - 1;
+    const chart = charts.brush;
+    if (!chart) return null;
+    const { left, right } = chart.chartArea;
+    const total = dates.length;
+    const sx = left + (ws / (total-1)) * (right - left);
+    const ex = left + (we / (total-1)) * (right - left);
+    const W  = hitCanvas.getBoundingClientRect().width;
+    const scl = hitCanvas.width / W;
+    if (Math.abs(px - sx) < 8 * scl) return 'left';
+    if (Math.abs(px - ex) < 8 * scl) return 'right';
+    return null;
+  }
+
+  function getCanvasX(e) {
+    const rect = hitCanvas.getBoundingClientRect();
+    const scaleX = hitCanvas.width / rect.width;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    return (clientX - rect.left) * scaleX;
+  }
+
+  hitCanvas.addEventListener('mousedown', e => {
+    const px   = getCanvasX(e);
+    const edge = getEdge(px);
+    brushState.dragging = !edge;
+    brushState.resizing = edge || null;
+    brushState.startPx  = px;
+    if (!edge) {
+      // New selection: start from this point
+      const idx = pixToIdx(px);
+      brushState.selStart = idx;
+    }
+  });
+
+  hitCanvas.addEventListener('mousemove', e => {
+    const px   = getCanvasX(e);
+    const edge = getEdge(px);
+    hitCanvas.style.cursor = edge ? 'ew-resize' : 'crosshair';
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!brushState.dragging && !brushState.resizing) return;
+    const px  = getCanvasX(e);
+    const idx = pixToIdx(px);
+    let s = window._mainWinStart ?? 0;
+    let en = window._mainWinEnd  ?? dates.length - 1;
+
+    if (brushState.dragging) {
+      const a = brushState.selStart;
+      const b = idx;
+      s  = Math.min(a, b);
+      en = Math.max(a, b);
+    } else if (brushState.resizing === 'left') {
+      s  = Math.min(idx, en - 1);
+    } else if (brushState.resizing === 'right') {
+      en = Math.max(idx, s + 1);
+    }
+
+    paintBrushOverlay(s, en);
+    // Live update the info label only; don't call setMainWindow during drag (too expensive)
+    const infoEl = document.getElementById('brushInfo');
+    if (infoEl) infoEl.textContent = `${dates[s]} → ${dates[en]}`;
+  });
+
+  window.addEventListener('mouseup', e => {
+    if (!brushState.dragging && !brushState.resizing) return;
+    const px  = getCanvasX(e);
+    const idx = pixToIdx(px);
+    let s = window._mainWinStart ?? 0;
+    let en = window._mainWinEnd  ?? dates.length - 1;
+
+    if (brushState.dragging) {
+      const a = brushState.selStart;
+      const b = idx;
+      s  = Math.min(a, b);
+      en = Math.max(a, b);
+    } else if (brushState.resizing === 'left') {
+      s  = Math.min(idx, en - 1);
+    } else if (brushState.resizing === 'right') {
+      en = Math.max(idx, s + 1);
+    }
+
+    brushState.dragging = false;
+    brushState.resizing = null;
+    if (en - s >= 1) setMainWindow(s, en, false);
+  });
+
+  // Touch
+  hitCanvas.addEventListener('touchstart', e => {
+    const px  = getCanvasX(e);
+    brushState.dragging = true;
+    brushState.selStart = pixToIdx(px);
+  }, { passive: true });
+  window.addEventListener('touchmove', e => {
+    if (!brushState.dragging) return;
+    const px = getCanvasX(e);
+    const a  = brushState.selStart, b = pixToIdx(px);
+    paintBrushOverlay(Math.min(a,b), Math.max(a,b));
+  }, { passive: true });
+  window.addEventListener('touchend', e => {
+    if (!brushState.dragging) return;
+    brushState.dragging = false;
+    // Commit last painted state
+    const s  = window._mainWinStart ?? 0;
+    const en = window._mainWinEnd   ?? dates.length - 1;
+    setMainWindow(s, en, false);
+  });
+}
+
+// ═══════════════════════════════════════════════
+// CHART HELPERS
+// ═══════════════════════════════════════════════
+function dC(id) { if(charts[id]){charts[id].destroy();delete charts[id];} }
+function basePlug() {
+  return {legend:{display:false},tooltip:{backgroundColor:'#19222e',borderColor:'rgba(88,140,200,.2)',borderWidth:1,titleColor:'#506070',bodyColor:'#c8d8e8',padding:9,titleFont:{family:"'JetBrains Mono'",size:10},bodyFont:{family:"'JetBrains Mono'",size:11}}};
+}
+function baseOpts(scOv={}, compact=false) {
+  return {responsive:true,maintainAspectRatio:false,animation:{duration:320},
+    plugins:basePlug(),
+    scales:{
+      x:{...(scOv.x||{}),ticks:{color:'#506070',font:{family:"'JetBrains Mono'",size:10},maxTicksLimit:compact?6:9,...(scOv.x?.ticks||{})},grid:{color:'rgba(88,140,200,.05)',...(scOv.x?.grid||{})}},
+      y:{...(scOv.y||{}),ticks:{color:'#506070',font:{family:"'JetBrains Mono'",size:10},...(scOv.y?.ticks||{})},grid:{color:'rgba(88,140,200,.06)',...(scOv.y?.grid||{})}}
+    }};
+}
+function mkChart(id, type, labels, datasets, scOv={}, compact=false) {
+  return new Chart(document.getElementById(id), {type, data:{labels,datasets}, options:baseOpts(scOv,compact)});
+}
+
+// ═══════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════
+function setLoad(on) { document.getElementById('lb').classList.toggle('on',on); }
+function showErr(m)  { const e=document.getElementById('err'); e.textContent=m; e.classList.add('on'); }
+function hideErr()   { document.getElementById('err').classList.remove('on'); }
+
+function fn(v,dec,unit='') {
+  if(v==null||v===undefined) return '—';
+  const n=parseFloat(v); return isNaN(n)?'—':n.toFixed(dec)+unit;
+}
+function fret(v) { if(v==null) return '—'; return (v>0?'+':'')+parseFloat(v).toFixed(1)+'%'; }
+function rc(v)   { if(v==null) return 'c-acc'; return parseFloat(v)>=0?'c-neg':'c-pos'; }
+function scoreColor(s) { if(s==null) return 'c-acc'; return s>=70?'c-neg':s>=50?'c-neu':'c-pos'; }
+
+// Clock
+setInterval(()=>{document.getElementById('clk').textContent=new Date().toLocaleString('zh-CN',{hour12:false}).replace(/\//g,'-');}, 1000);
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+(async ()=>{
+  buildWL();
+  const ok = await checkApi();
+  if (ok) { loadData(); }
+  else { openModal(); }
+})();
+</script>
+</body>
+</html>

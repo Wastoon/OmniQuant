@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 
 import json
+import re
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -65,6 +66,7 @@ except Exception:
 
 # 全局数据源（单例）
 _ds: Optional[DataSource] = None
+AMBIGUOUS_FUND_CODES = {"002610"}
 
 def get_ds() -> DataSource:
     global _ds
@@ -205,6 +207,23 @@ def _build_fin_factors(ds: DataSource, code: str) -> dict:
         result["_err_inst"] = str(e)
 
     return result
+
+
+def _looks_like_a_stock_code(code: str) -> bool:
+    """识别当前系统支持的 A 股常见代码段，避免把基金误按股票接口拉取。"""
+    s = str(code or "").strip()
+    return bool(
+        re.fullmatch(r"(?:60|68)\d{4}", s)
+        or re.fullmatch(r"(?:000|001|002|003|300|301)\d{3}", s)
+    )
+
+
+def _looks_like_fund_code(code: str) -> bool:
+    """常见基金/ETF/LOF/联接基金代码段；007301 属于这里。"""
+    s = str(code or "").strip()
+    if s in AMBIGUOUS_FUND_CODES:
+        return True
+    return bool(re.fullmatch(r"(?:00[4-9]\d{3}|(?:01|02|04|05|07|08|09|15|16|18|50|51|52)\d{4})", s))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -379,6 +398,9 @@ def get_stock(
     返回：行情 + 技术 + 5大因子 + PE/PB百分位 + 行业分位 + 多因子评分
     """
     ds = get_ds()
+    if _looks_like_fund_code(code) and (not _looks_like_a_stock_code(code) or code in AMBIGUOUS_FUND_CODES):
+        raise HTTPException(400, f"{code} 看起来是基金代码，请使用基金类型添加，或请求 /api/fund/{code}")
+
     start, end = _years_to_dates(years)
 
     # ── 行情 ──

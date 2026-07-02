@@ -11,7 +11,8 @@ def sanitize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = df.replace([np.inf, -np.inf], np.nan)
 
     # 2. 可选：前后填充（避免指标断裂）
-    df = df.fillna(method="ffill").fillna(method="bfill")
+    # pandas 3.x 移除了 fillna(method=...)，改用等价的 ffill/bfill。
+    df = df.ffill().bfill()
 
     # 3. 最终兜底 → None（JSON安全）
     df = df.where(pd.notnull(df), None)

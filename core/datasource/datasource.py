@@ -113,8 +113,9 @@ class DataSource:
             return cached
 
         try:
-            # 一级：AkShare + Tushare
-            df = self._call("stock_hist", code, start, end)
+            # 一级：优先使用 Tushare（如果用户提供了 token），避免 AkShare/东方财富偶发断连
+            adapters = [(self.ts, "Tushare"), (self.ak, "AkShare")] if self.ts.available else None
+            df = self._call("stock_hist", code, start, end, adapters=adapters)
             df = normalize_kline(df)
             df = DataValidator.validate_kline(df)
             self.cache.save(key, df)
@@ -149,9 +150,9 @@ class DataSource:
     def source_log(self) -> dict:
         return dict(self._log)
     
-    def _call(self, method: str, *args, **kwargs):
+    def _call(self, method: str, *args, adapters=None, **kwargs):
         errors = []
-        for adapter, name in [(self.ak, "AkShare"), (self.ts, "Tushare")]:
+        for adapter, name in (adapters or [(self.ak, "AkShare"), (self.ts, "Tushare")]):
             if not adapter.available:
                 continue
             if not hasattr(adapter, method):

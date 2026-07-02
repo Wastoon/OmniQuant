@@ -639,17 +639,37 @@ let wl = JSON.parse(localStorage.getItem('wl') || 'null') || [
 ];
 function saveWL() { localStorage.setItem('wl', JSON.stringify(wl)); }
 
-function inferAssetType(code, fallback=curType) {
+// 少数基金代码与 A 股代码段冲突；这里放“业务上默认作为基金展示”的显式映射。
+const AMBIGUOUS_FUND_CODES = new Set(['002610']);
+
+function looksLikeAStockCode(code) {
   const s = String(code || '').trim();
-  if (/^(60|68|00|30)\d{4}$/.test(s)) return 'stock';
-  if (fallback === 'stock' || fallback === 'fund') return fallback;
+  // A 股常见代码段：沪市 60/68，深市 000/001/002/003/300/301。
+  // 不再把所有 00xxxx 都当股票，否则 007301 这类开放式基金会被误判为股票。
+  return /^(60|68)\d{4}$/.test(s) || /^(000|001|002|003|300|301)\d{3}$/.test(s);
+}
+
+function looksLikeFundCode(code) {
+  const s = String(code || '').trim();
+  if (AMBIGUOUS_FUND_CODES.has(s)) return true;
+  if (!/^\d{6}$/.test(s)) return false;
+  // 常见基金/ETF/LOF/联接基金代码段。007301 属于开放式基金，必须优先识别为 fund。
+  return /^(?:00[4-9]\d{3}|(?:01|02|04|05|07|08|09|15|16|18|50|51|52)\d{4})$/.test(s);
+}
+
+function inferAssetType(code, fallback=curType, trustFallback=false) {
+  const explicit = (fallback === 'stock' || fallback === 'fund') ? fallback : null;
+  if (looksLikeFundCode(code)) return 'fund';
+  if (trustFallback && explicit === 'fund') return 'fund';
+  if (looksLikeAStockCode(code)) return 'stock';
+  if (explicit) return explicit;
   return 'fund';
 }
 
 function normalizeWatchlistTypes() {
   let changed = false;
   wl.forEach(item => {
-    const inferred = inferAssetType(item.code, item.type);
+    const inferred = inferAssetType(item.code, item.type, true);
     if (item.type !== inferred) {
       item.type = inferred;
       changed = true;
@@ -1459,13 +1479,15 @@ function delWL(event, i) {
 async function doSearch() {
   const q = document.getElementById('srchQ').value.trim();
   if (!q) return;
-  const inferredType = inferAssetType(q, curType);
-  const searchType = curType === 'both' ? 'both' : inferredType;
+  // 用户明确选中「基金/股票」时优先尊重选择，避免 002610 这种“既像股票代码、又是基金代码”的冲突。
+  // 「全部」模式下再按代码段做自动推断，并允许搜索结果纠偏。
+  const inferredType = curType === 'both' ? inferAssetType(q, curType) : curType;
+  const searchType = curType === 'both' ? 'both' : curType;
   if (!apiOk) { addToWL(q, q, inferredType, 1, 1); document.getElementById('srchQ').value=''; return; }
   const d = await get(`/api/search?q=${encodeURIComponent(q)}&type=${searchType}`);
   if (d?.results?.length) {
     const r = d.results.find(x => x.type === inferredType) || d.results[0];
-    addToWL(r.code, r.name, inferAssetType(r.code, r.type || inferredType), 1, 1);
+    addToWL(r.code, r.name, inferAssetType(r.code, r.type || inferredType, true), 1, 1);
   } else {
     addToWL(q, q, inferredType, 1, 1);
   }
@@ -1473,7 +1495,7 @@ async function doSearch() {
 }
 
 function addToWL(code, name, type, nav, prev) {
-  type = inferAssetType(code, type);
+  type = inferAssetType(code, type, true);
   const ex = wl.findIndex(w=>w.code===code && w.type===type);
   if (ex>=0) { selItem(ex); return; }
   wl.push({code,name,type,nav,prev:prev||nav,signal:'hold'});

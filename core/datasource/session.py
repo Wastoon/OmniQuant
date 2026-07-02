@@ -8,7 +8,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 class RetrySession(requests.Session):
-    def __init__(self, retries=10, backoff=1, status_forcelist=None):
+    def __init__(self, retries=RETRY, backoff=0.5, status_forcelist=None):
         super().__init__()
         if status_forcelist is None:
             status_forcelist = [500, 502, 503, 504]

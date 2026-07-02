@@ -3,6 +3,8 @@
 ==============================
 启动:
     pip install akshare fastapi uvicorn pandas numpy scipy
+    pip install tushare akshare
+    pip install pyarrow fastparquet
     python main.py                         # 仅 AkShare
     TUSHARE_TOKEN=xxx python main.py       # AkShare + Tushare 双源
 

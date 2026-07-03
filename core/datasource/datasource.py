@@ -313,10 +313,21 @@ class DataSource:
         return quote
 
     def stock_info(self, code: str) -> dict:
-        try:
-            return self._call("stock_info", code)
-        except DataUnavailableError:
-            return {}
+        merged = {}
+        errors = []
+        for adapter, name in [(self.ak, "AkShare"), (self.ts, "Tushare")]:
+            if not adapter.available or not hasattr(adapter, "stock_info"):
+                continue
+            try:
+                info = adapter.stock_info(code) or {}
+                if info:
+                    merged.update({k: v for k, v in info.items() if v is not None})
+                    self._log["stock_info"] = name.lower()
+            except Exception as e:
+                errors.append(f"{name}.stock_info: {e}")
+        if errors and not merged:
+            logger.debug("stock_info 全部失败: %s", errors)
+        return merged
 
     def stock_balance_sheet(self, code: str) -> pd.DataFrame:
         return self._call("stock_balance_sheet", code)

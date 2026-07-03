@@ -116,6 +116,63 @@ def _build_fin_factors(ds: DataSource, code: str) -> dict:
     每个子因子失败不会中断整体（catch-all）
     """
     result = {}
+    fin_df = pd.DataFrame()
+    bs_df = pd.DataFrame()
+    inc_df = pd.DataFrame()
+    cf_df = pd.DataFrame()
+
+    def _latest_fin_row(df: pd.DataFrame):
+        if df is None or df.empty:
+            return None
+        date_col = None
+        for c in ["日期", "报告期", "end_date", "ann_date"]:
+            if c in df.columns:
+                date_col = c
+                break
+        tmp = df.copy()
+        if date_col:
+            tmp[date_col] = pd.to_datetime(tmp[date_col], errors="coerce")
+            tmp = tmp.sort_values(date_col)
+        return tmp.dropna(how="all").iloc[-1] if not tmp.empty else None
+
+    def _first_numeric(row, cols):
+        if row is None:
+            return None
+        for c in cols:
+            if c in row.index:
+                v = sf(row.get(c))
+                if v is not None:
+                    return v
+        return None
+
+    def _balance_proxy_from_fin(df: pd.DataFrame) -> dict:
+        row = _latest_fin_row(df)
+        debt = _first_numeric(row, ["资产负债率(%)", "debt_to_assets"])
+        current = _first_numeric(row, ["流动比率", "current_ratio"])
+        quick = _first_numeric(row, ["速动比率", "quick_ratio"])
+        equity = _first_numeric(row, ["股东权益比率(%)"])
+        if debt is None and current is None and quick is None:
+            return {"error": "资产负债表不可用，财务指标中也缺少偿债能力字段", "score": 50}
+        # 资产负债率越低、流动比率越高，资产负债维度越稳健。
+        debt_score = 100 - min(90, max(0, debt or 50))
+        liq_score = min(100, max(0, (current or 1) * 35))
+        score = round(debt_score * 0.7 + liq_score * 0.3)
+        if score >= 75: grade, advice = "A", "资产负债结构稳健，偿债压力较低"
+        elif score >= 60: grade, advice = "B", "资产负债处于可接受区间"
+        elif score >= 45: grade, advice = "C", "杠杆或流动性一般，需结合行业对比"
+        else: grade, advice = "D", "杠杆偏高或流动性偏弱，注意债务风险"
+        return {
+            "current_ratio": debt,
+            "fallback_metric": "资产负债率",
+            "liquidity_current_ratio": current,
+            "quick_ratio": quick,
+            "equity_ratio": equity,
+            "grade": grade,
+            "advice": advice,
+            "score": score,
+            "history": [{"accounts_payable": 0, "advance_receipts": 0, "ratio": debt}],
+            "note": "资产负债表接口不可用，已用财务指标中的资产负债率/流动比率近似替代",
+        }
 
     # ① 基础财务指标（ROE / 毛利率等）
     try:
@@ -129,7 +186,7 @@ def _build_fin_factors(ds: DataSource, code: str) -> dict:
             if col in fin_df.columns:
                 vals = pd.to_numeric(fin_df[col], errors="coerce").dropna()
                 if len(vals):
-                    result["roe"] = sf(vals.iloc[0])
+                    result["roe"] = sf(vals.iloc[-1])
                 break
 
         # EPS
@@ -137,8 +194,14 @@ def _build_fin_factors(ds: DataSource, code: str) -> dict:
             if col in fin_df.columns:
                 vals = pd.to_numeric(fin_df[col], errors="coerce").dropna()
                 if len(vals):
-                    result["eps"] = sf(vals.iloc[0])
+                    result["eps"] = sf(vals.iloc[-1])
                 break
+
+        row = _latest_fin_row(fin_df)
+        ocfps = _first_numeric(row, ["每股经营性现金流(元)", "ocfps"])
+        if ocfps is not None:
+            result["operating_cashflow_per_share"] = ocfps
+            result["cashflow_score"] = 80 if ocfps > 0 else 30
     except Exception as e:
         result["_err_fin"] = str(e)
 
@@ -149,6 +212,9 @@ def _build_fin_factors(ds: DataSource, code: str) -> dict:
         result["interest_free_liab"] = ifl
         result["interest_free_liab_score"] = ifl.get("score", 50)
     except Exception as e:
+        proxy = _balance_proxy_from_fin(fin_df)
+        result["interest_free_liab"] = proxy
+        result["interest_free_liab_score"] = proxy.get("score", 50)
         result["_err_bs"] = str(e)
 
     # ③ R&D 资本化
@@ -175,6 +241,8 @@ def _build_fin_factors(ds: DataSource, code: str) -> dict:
             cap = result.get("capex", 0) or 0
             result["fcf"] = opc - cap
     except Exception as e:
+        if "cashflow_score" in result:
+            result["cashflow_note"] = "现金流量表不可用，已使用每股经营性现金流作为现金流维度兜底"
         result["_err_cf"] = str(e)
 
     # ④ 股息支付率
@@ -435,6 +503,10 @@ def get_stock(
         pe_pb_df = ds.stock_pe_pb_history(code)
         val_pct  = calc_pe_pb_percentile(pe_pb_df)
         valuation.update(val_pct)
+        pe_ttm = pe_ttm if pe_ttm is not None else valuation.get("pe_current")
+        pb = pb if pb is not None else valuation.get("pb_current")
+        valuation["pe_ttm"] = pe_ttm
+        valuation["pb"] = pb
     except Exception as e:
         valuation["_err_pepb"] = str(e)
 

@@ -309,11 +309,11 @@ def factor_gross_margin_stability(fin_df: pd.DataFrame) -> dict:
     df = df.dropna().sort_values(date_col)
     margins = df[gm_col].values
     dates   = df[date_col].astype(str).values
-    if len(margins) < 4:
+    if len(margins) < 2:
         return {"error": "历史季度数不足"}
     mean = float(np.mean(margins)); std = float(np.std(margins, ddof=1))
     cv = std / mean * 100 if mean != 0 else 999
-    trend_slope = float(np.polyfit(range(len(margins)), margins, 1)[0])
+    trend_slope = float(np.polyfit(range(len(margins)), margins, 1)[0]) if len(margins) >= 2 else 0
     if cv < 5:   grade, advice = "A", "极度稳定，定价权极强"
     elif cv < 10: grade, advice = "B", "稳定性良好，有较强竞争壁垒"
     elif cv < 20: grade, advice = "C", "中等稳定，受成本/竞争影响有限"
@@ -325,6 +325,8 @@ def factor_gross_margin_stability(fin_df: pd.DataFrame) -> dict:
             "grade": grade, "advice": advice,
             "score": round(max(0, min(100, 100 - cv * 2.5))),
             "history": [{"date": str(d)[:10], "value": round(float(v), 2)} for d, v in zip(dates, margins)],
+            "sample_count": int(len(margins)),
+            "note": "有效历史期数少于4期，稳定性结论仅供参考" if len(margins) < 4 else "",
             "trend": "stable" if cv < 10 else "volatile"}
 
 
@@ -493,7 +495,9 @@ def multi_factor_score(fin_factors, valuation, technical, drawdown, weights=None
     dims["valuation"] = round(sum(val_scores) / len(val_scores)) if val_scores else 50
     fcf = fin_factors.get("fcf")
     div_score = fin_factors.get("dividend_score", 50)
-    fcf_score = 80 if fcf and fcf > 0 else 25 if fcf is not None else 50
+    fcf_score = fin_factors.get("cashflow_score")
+    if fcf_score is None:
+        fcf_score = 80 if fcf and fcf > 0 else 25 if fcf is not None else 50
     dims["cashflow"] = round((fcf_score + div_score) / 2)
     rsi  = technical.get("rsi14"); macd = technical.get("macd_hist")
     rsi_score  = 90 if rsi and rsi < 30 else 40 if rsi and rsi > 70 else 70 if rsi else 50

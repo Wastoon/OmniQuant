@@ -91,10 +91,20 @@ class AkShareAdapter:
     def stock_pe_pb_history(self, code: str) -> pd.DataFrame:
         """
         PE/PB 历史百分位数据
-        使用 stock_a_lg_indicator（龙虎榜历史估值）
+        优先使用乐咕乐股接口；新版 AkShare 移除了 stock_a_lg_indicator 时，
+        回退到百度股市通估值接口，保证页面至少有 5 年 PE/PB 历史序列。
         """
-        df = self.ak.stock_a_lg_indicator(symbol=code)
-        return df
+        if hasattr(self.ak, "stock_a_lg_indicator"):
+            return self.ak.stock_a_lg_indicator(symbol=code)
+
+        pe = self.ak.stock_zh_valuation_baidu(symbol=code, indicator="市盈率(TTM)", period="近五年")
+        pb = self.ak.stock_zh_valuation_baidu(symbol=code, indicator="市净率", period="近五年")
+        if pe is None or pe.empty or pb is None or pb.empty:
+            return pd.DataFrame()
+        pe = pe.rename(columns={"value": "pe"})[["date", "pe"]]
+        pb = pb.rename(columns={"value": "pb"})[["date", "pb"]]
+        df = pd.merge(pe, pb, on="date", how="outer")
+        return df.sort_values("date").reset_index(drop=True)
 
     # ── 财务报表 ──────────────────────────────────────────────────
 

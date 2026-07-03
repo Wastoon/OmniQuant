@@ -1033,6 +1033,13 @@ function renderQuant(d, item) {
   }
 
   const iflR = ifl.current_ratio, iflG = ifl.grade, iflA = ifl.advice || '';
+  const iflTitle = ifl.fallback_metric || '无息负债比例';
+  const iflUnit = ifl.fallback_metric ? '%' : '%';
+  const iflSub = iflR!=null
+    ? (ifl.fallback_metric
+      ? `流动比率:${fn(ifl.liquidity_current_ratio,2)} 速动比率:${fn(ifl.quick_ratio,2)} 股东权益:${fn(ifl.equity_ratio,1,'%')}`
+      : `应付:${(ifl.history?.[0]?.accounts_payable||0).toExponential(2)} 预收:${(ifl.history?.[0]?.advance_receipts||0).toExponential(2)}`)
+    : '等待财务数据...';
   const gmCV = gm.cv, gmG = gm.grade, gmA = gm.advice || '';
   const rdR  = rd.capitalization_rate, rdG = rd.grade, rdA = rd.advice || '';
   const divR = div.payout_ratio, divG = div.grade, divA = div.advice || '';
@@ -1040,9 +1047,9 @@ function renderQuant(d, item) {
   const fcf  = ff.fcf != null ? (ff.fcf/1e8).toFixed(2) : null;
 
   document.getElementById('qgrid').innerHTML = [
-    qCard('①','无息负债比例', iflR!=null?iflR.toFixed(1):null,'%',
-      iflR!=null?`应付:${(ifl.history?.[0]?.accounts_payable||0).toExponential(2)} 预收:${(ifl.history?.[0]?.advance_receipts||0).toExponential(2)}`:'等待财务数据...',
-      iflG, '高比例=产业链话语权强（类金融模式）',
+    qCard('①', iflTitle, iflR!=null?iflR.toFixed(1):null, iflUnit,
+      iflSub,
+      iflG, ifl.fallback_metric ? '资产负债表不可用时的近似替代：负债率越低、流动比率越高越稳健' : '高比例=产业链话语权强（类金融模式）',
       iflA?`<div class="warn-pill ${iflG==='A'?'wp-good':iflG==='D'?'wp-bad':'wp-warn'}">${iflA}</div>`:''
     ),
     qCard('②','毛利率变异系数CV', gmCV!=null?gmCV.toFixed(1):null,'%',
@@ -1066,9 +1073,9 @@ function renderQuant(d, item) {
       insA?`<div class="warn-pill ${insG==='A'?'wp-good':insG==='D'?'wp-bad':'wp-warn'}">${insA}</div>`:''
     ),
     qCard('FCF','自由现金流', fcf,'亿元',
-      ff.operating_cashflow!=null?`经营CFO:${(ff.operating_cashflow/1e8).toFixed(2)}亿 CAPEX:${((ff.capex||0)/1e8).toFixed(2)}亿`:'等待现金流数据...',
-      ff.fcf!=null?(ff.fcf>0?'A':'D'):null, 'FCF=经营现金流-资本支出，衡量真实造血能力',
-      ff.fcf!=null?`<div class="warn-pill ${ff.fcf>0?'wp-good':'wp-bad'}">${ff.fcf>0?'正向FCF，现金充裕':'负向FCF，需关注融资依赖'}</div>`:''
+      ff.operating_cashflow!=null?`经营CFO:${(ff.operating_cashflow/1e8).toFixed(2)}亿 CAPEX:${((ff.capex||0)/1e8).toFixed(2)}亿`:(ff.operating_cashflow_per_share!=null?`每股经营现金流:${fn(ff.operating_cashflow_per_share,2)} 元`:'等待现金流数据...'),
+      ff.fcf!=null?(ff.fcf>0?'A':'D'):(ff.cashflow_score!=null?(ff.cashflow_score>=60?'B':'D'):null), 'FCF=经营现金流-资本支出；缺少现金流量表时用每股经营现金流兜底',
+      ff.fcf!=null?`<div class="warn-pill ${ff.fcf>0?'wp-good':'wp-bad'}">${ff.fcf>0?'正向FCF，现金充裕':'负向FCF，需关注融资依赖'}</div>`:(ff.cashflow_note?`<div class="warn-pill wp-warn">${ff.cashflow_note}</div>`:'')
     ),
   ].join('');
 

@@ -28,19 +28,18 @@ class TushareAdapter:
 
             self.available = True
 
-    def stock_hist(self, code, start, end):
-
+    def stock_hist(self, code, start, end, adjust=""):
         if not self.available:
             return None
-
         ts_code = f"{code}.SH" if code.startswith("6") else f"{code}.SZ"
-
+        
+        # Tushare daily is unadjusted by default.
+        # If adjust is needed, it usually requires merging with adj factor, but for simplicity we just return daily here.
         df = self.pro.daily(
             ts_code=ts_code,
             start_date=start.replace("-", ""),
             end_date=end.replace("-", "")
         )
-
         return df
 
     def _tscode(self, code):

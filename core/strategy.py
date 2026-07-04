@@ -255,6 +255,148 @@ def calc_trading_ranges(
     }
 
 
+def calc_ema_trailing_strategy(df: pd.DataFrame, initial_cash: float = 100000.0, start_date: str = None, end_date: str = None) -> dict:
+    if df is None or df.empty or "close" not in df.columns:
+        return {}
+
+    data = df.copy()
+    data["close"] = pd.to_numeric(data["close"], errors="coerce")
+    data = data.dropna(subset=["close"]).reset_index(drop=True)
+    if len(data) < 30:
+        return {}
+
+    close = data["close"]
+    high = data.get("high", close)
+    low = data.get("low", close)
+    dates = data.get("date", data.index)
+
+    # 1. 计算平滑曲线 EMA30 (更平稳的趋势判断)
+    ema20 = close.ewm(span=30, adjust=False).mean()
+
+    # 2. 计算 ATR (Average True Range) 用于判断波动和假性下跌
+    tr1 = high - low
+    tr2 = (high - close.shift(1)).abs()
+    tr3 = (low - close.shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = tr.rolling(14).mean()
+
+    # 3. 计算 10日最高价用于突破确认
+    highest_10 = close.rolling(10).max().shift(1)
+
+    # 初始化变量
+    trailing_stop = pd.Series(np.nan, index=close.index, dtype=float)
+    position_series = pd.Series(0.0, index=close.index, dtype=float)
+    
+    cash = float(initial_cash)
+    shares = 0.0
+    trades = []
+    equity_curve = []
+    
+    in_position = False
+    stop_price = 0.0
+    
+    buy_signals = [None] * len(close)
+    sell_signals = [None] * len(close)
+    
+    # 将 start_date 和 end_date 转换为可比较的格式
+    start_idx = 30
+    end_idx = len(close)
+    
+    if start_date or end_date:
+        for i in range(len(dates)):
+            date_str = dates.iloc[i].strftime("%Y-%m-%d") if hasattr(dates.iloc[i], 'strftime') else str(dates.iloc[i])
+            if start_date and date_str < start_date:
+                start_idx = max(start_idx, i + 1)
+            if end_date and date_str > end_date:
+                end_idx = min(end_idx, i)
+
+    for i in range(start_idx, end_idx):
+        cur_price = float(close.iloc[i])
+        cur_ema = float(ema20.iloc[i])
+        prev3_ema = float(ema20.iloc[i-3]) if i >= 3 else float(ema20.iloc[i-1])
+        cur_atr = float(atr.iloc[i]) if pd.notna(atr.iloc[i]) else float(cur_price * 0.02)
+        cur_h10 = float(highest_10.iloc[i]) if pd.notna(highest_10.iloc[i]) else cur_price
+        
+        # 趋势向上的判断：EMA明显上翘 且 价格在 EMA 之上，并且突破近期高点确认启动
+        ema_slope = (cur_ema - prev3_ema) / prev3_ema
+        trend_up = (ema_slope > 0.002) and (cur_price > cur_ema) and (cur_price >= cur_h10)
+        
+        if not in_position:
+            # 买入逻辑：捕获上升趋势的中段
+            if trend_up:
+                in_position = True
+                # 初始止损线设在当前价格下方 3.0 倍 ATR 处，容忍正常的回调震荡
+                stop_price = cur_price - 3.0 * cur_atr
+                # 建议仓位：根据波动率动态调整，默认 90%
+                suggested_pos = 0.90
+                buy_amount = cash * suggested_pos
+                shares = buy_amount / cur_price
+                cash -= buy_amount
+                
+                date_str = dates.iloc[i].strftime("%Y-%m-%d") if hasattr(dates.iloc[i], 'strftime') else str(dates.iloc[i])
+                trades.append({
+                    "index": i, 
+                    "date": date_str, 
+                    "action": "buy", 
+                    "price": round(cur_price, 3), 
+                    "shares": round(shares, 2)
+                })
+                buy_signals[i] = cur_price
+        else:
+            # 动态抬升阶梯止损线 (Trailing Stop)
+            # 使用买入以来的最高价来更新止损线
+            highest_since_buy = close.iloc[trades[-1]["index"]:i+1].max()
+            new_stop = highest_since_buy - 3.0 * cur_atr
+            if new_stop > stop_price:
+                stop_price = new_stop
+                
+            # 卖出逻辑：仅当跌破阶梯止损线时卖出 (避免假性下跌洗盘)
+            if cur_price < stop_price:
+                in_position = False
+                cash += shares * cur_price
+                
+                date_str = dates.iloc[i].strftime("%Y-%m-%d") if hasattr(dates.iloc[i], 'strftime') else str(dates.iloc[i])
+                buy_price = trades[-1]["price"]
+                ret_pct = (cur_price / buy_price - 1) * 100
+                trades.append({
+                    "index": i, 
+                    "date": date_str, 
+                    "action": "sell", 
+                    "price": round(cur_price, 3), 
+                    "shares": round(shares, 2),
+                    "return_pct": round(ret_pct, 2)
+                })
+                shares = 0.0
+                stop_price = np.nan
+                sell_signals[i] = cur_price
+                
+        if in_position:
+            trailing_stop.iloc[i] = stop_price
+            position_series.iloc[i] = 0.90
+        else:
+            position_series.iloc[i] = 0.0
+            
+        equity_curve.append(cash + shares * cur_price)
+
+    # 补齐未计算期间的权益曲线
+    full_equity = [initial_cash] * start_idx + equity_curve
+    if len(full_equity) < len(close):
+        full_equity.extend([full_equity[-1]] * (len(close) - len(full_equity)))
+    total_return = full_equity[-1] / initial_cash - 1
+
+    return {
+        "ema20": [round(float(x), 4) if pd.notna(x) else None for x in ema20],
+        "trailing_stop": [round(float(x), 4) if pd.notna(x) else None for x in trailing_stop],
+        "buy_signals": [round(float(x), 4) if x is not None else None for x in buy_signals],
+        "sell_signals": [round(float(x), 4) if x is not None else None for x in sell_signals],
+        "position_series": [round(float(x), 2) for x in position_series],
+        "trades": trades,
+        "equity_curve": [round(float(x), 2) for x in full_equity],
+        "final_equity": round(float(full_equity[-1]), 2),
+        "total_return_pct": round(float(total_return * 100), 2)
+    }
+
+
 def backtest_strategy(df: pd.DataFrame, initial_cash: float = 100000.0) -> dict:
     if df is None or df.empty or "close" not in df.columns:
         raise ValueError("回测需要包含 close 列的价格数据")

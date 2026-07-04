@@ -32,9 +32,9 @@ class AkShareAdapter:
 
     # ── 行情 ─────────────────────────────────────────────────────
 
-    def stock_hist(self, code: str, start: str, end: str) -> pd.DataFrame:
+    def stock_hist(self, code: str, start: str, end: str, adjust: str = "") -> pd.DataFrame:
         """
-        股票日K线（前复权）
+        股票日K线
         BUG FIX: AkShare 需要 YYYYMMDD 格式，去掉连字符
         """
         start_clean = start.replace("-", "")
@@ -44,7 +44,7 @@ class AkShareAdapter:
             period="daily",
             start_date=start_clean,
             end_date=end_clean,
-            adjust="qfq",
+            adjust=adjust,
         )
         return df
 

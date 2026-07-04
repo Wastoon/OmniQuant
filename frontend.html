@@ -768,6 +768,175 @@ function renderCurrent() {
 // ═══════════════════════════════════════════════
 // OVERVIEW
 // ═══════════════════════════════════════════════
+async function updateMainChartData(startIdx, endIdx) {
+  const d = activeData;
+  if (!d) return;
+  const item = wl[activeIdx];
+  const isQfq = window._currentPriceType === 'qfq';
+  
+  const prices = isQfq ? (d.close_qfq || d.close || []) : (d.nav || d.close || []);
+  const dates  = d.dates || [];
+  let ch = isQfq ? (d.channel_qfq || d.channel || {}) : (d.channel || {});
+  let tr = isQfq ? (d.trading_ranges_qfq || d.trading_ranges || {}) : (d.trading_ranges || {});
+  
+  let buySignals = null;
+  let sellSignals = null;
+  
+  if (window._currentTrendType === 'ema_trailing') {
+    document.getElementById('lb').classList.add('on');
+    const yMap = {'1y':1,'3y':3,'5y':5,'all':8};
+    let url = `/api/strategy/ema_trailing/${item.type}/${item.code}?years=${yMap[curRng]||3}&adjust=${window._currentPriceType}`;
+    if (startIdx !== undefined && endIdx !== undefined && dates[startIdx] && dates[endIdx]) {
+      url += `&start_date=${dates[startIdx]}&end_date=${dates[endIdx]}`;
+    }
+    const res = await get(url);
+    document.getElementById('lb').classList.remove('on');
+    if (res && res.result) {
+      d.ema_trailing = res.result;
+    }
+    if (d.ema_trailing) {
+      ch = { mid: d.ema_trailing.ema20, lower: d.ema_trailing.trailing_stop, upper: [] };
+      ch.current_mid = d.ema_trailing.ema20[d.ema_trailing.ema20.length - 1];
+      ch.current_lower = d.ema_trailing.trailing_stop[d.ema_trailing.trailing_stop.length - 1];
+      ch.current_upper = null;
+      buySignals = d.ema_trailing.buy_signals;
+      sellSignals = d.ema_trailing.sell_signals;
+      tr = { reference_position: d.ema_trailing.position_series };
+      renderBacktestResult(d.ema_trailing);
+    }
+  } else {
+    const pnl = document.getElementById('backtestPnl');
+    if (pnl) pnl.remove();
+  }
+
+  window._mainPrices = prices;
+  window._mainDates  = dates;
+  window._mainCh     = ch;
+  window._mainTR     = tr;
+
+  // 只有在没有提供具体的时间区间时，才重绘整个图表，否则只是更新了 backtest 面板
+  if (startIdx === undefined || endIdx === undefined) {
+    dC('mainC');
+    if (prices.length) {
+      buildMainChart(dates, prices, ch, tr, buySignals, sellSignals);
+      buildBrushChart(dates, prices);
+    }
+  } else {
+    // 强制更新主图的策略信号，以便只显示该区间内的信号
+    if (charts.mainC) {
+      const s = startIdx;
+      const e = endIdx;
+      let dsIdx = 5;
+      if (buySignals) {
+        charts.mainC.data.datasets[dsIdx++].data = buySignals.slice(s, e + 1);
+      }
+      if (sellSignals) {
+        charts.mainC.data.datasets[dsIdx++].data = sellSignals.slice(s, e + 1);
+      }
+      charts.mainC.update('none');
+    }
+  }
+  
+  // 更新 key levels
+  const cur = prices[prices.length-1];
+  const klevelsEl = document.getElementById('klevels');
+  if (klevelsEl) {
+    klevelsEl.innerHTML = [
+      {l:'+20%上轨', v:ch.current_upper!=null?fn(ch.current_upper,4):'—', cl:'#e74c3c'},
+      {l:'趋势中轨',  v:ch.current_mid!=null?fn(ch.current_mid,4):'—',   cl:'#f39c12'},
+      {l:'-20%下轨/止损', v:ch.current_lower!=null?fn(ch.current_lower,4):'—',  cl:'#2ecc71'},
+      {l:'买入区上沿', v:tr.latest?.buy_zone_price!=null?fn(tr.latest?.buy_zone_price,4):'—', cl:'#2ecc71'},
+      {l:'减仓区下沿', v:tr.latest?.sell_zone_price!=null?fn(tr.latest?.sell_zone_price,4):'—', cl:'#e74c3c'},
+      {l:'参考仓位', v:tr.latest?.suggested_position_pct!=null?tr.latest.suggested_position_pct+'%':'—', cl:'#c9785f'},
+      {l:'当前值',   v:cur!=null?fn(cur,4):'—',                cl:'#3d90f5'},
+      {l:'偏离中轨', v:(ch.deviation_pct!=null?(ch.deviation_pct>0?'+':'')+ch.deviation_pct.toFixed(1)+'%':'—'), cl:ch.deviation_pct>0?'#e74c3c':'#2ecc71'},
+    ].map(r=>`<div class="dr"><span class="dl">${r.l}</span><div style="display:flex;align-items:center;gap:7px"><div style="width:20px;height:2px;background:${r.cl};border-radius:1px"></div><span class="dv" style="color:${r.cl}">${r.v}</span></div></div>`).join('');
+  }
+}
+
+function renderBacktestResult(res) {
+  let pnl = document.getElementById('backtestPnl');
+  if (!pnl) {
+    pnl = document.createElement('div');
+    pnl.id = 'backtestPnl';
+    pnl.className = 'g g21';
+    pnl.style.marginBottom = '1px';
+    const mstrip = document.getElementById('mstrip');
+    if (mstrip && mstrip.nextSibling) {
+      mstrip.parentNode.insertBefore(pnl, mstrip.nextSibling);
+    }
+  }
+  
+  const dates = window._mainDates || [];
+  const sDate = window._backtest_start || dates[0] || '';
+  const eDate = window._backtest_end || dates[dates.length-1] || '';
+  
+  pnl.innerHTML = `
+    <div class="pnl" style="grid-column: 1 / -1;">
+      <div class="ph" style="display:flex; justify-content:space-between; align-items:center; padding-bottom:10px;">
+        <span class="pt">EMA移动止损策略 回测结果</span>
+        <div style="font-size: 12px; display:flex; gap:8px; align-items:center; background:var(--bg2); padding:4px 8px; border-radius:var(--r);">
+            <span style="color:var(--t3)">回测区间:</span>
+            <input type="date" id="bt_start" value="${sDate}" style="background:transparent; color:var(--t1); border:1px solid var(--b1); border-radius:3px; padding:2px; font-family:'JetBrains Mono'; font-size:11px;">
+            <span style="color:var(--t3)">-</span>
+            <input type="date" id="bt_end" value="${eDate}" style="background:transparent; color:var(--t1); border:1px solid var(--b1); border-radius:3px; padding:2px; font-family:'JetBrains Mono'; font-size:11px;">
+            <button onclick="window.applyBacktestRange()" style="background:var(--pur); color:#fff; border:none; border-radius:3px; padding:3px 8px; cursor:pointer; font-size:11px; margin-left:4px;">重新回测</button>
+        </div>
+      </div>
+      <div class="pb">
+        <div style="display:flex; gap:20px; margin-bottom: 10px;">
+          <div><span style="color:var(--t3);font-size:12px;">总收益率:</span> <strong style="color:${res.total_return_pct>=0?'var(--red)':'var(--grn)'};font-size:16px;">${res.total_return_pct.toFixed(2)}%</strong></div>
+          <div><span style="color:var(--t3);font-size:12px;">最终权益:</span> <strong style="color:var(--t1);font-size:16px;">${res.final_equity.toFixed(2)}</strong></div>
+          <div><span style="color:var(--t3);font-size:12px;">交易次数:</span> <strong style="color:var(--t1);font-size:16px;">${res.trades ? res.trades.length : 0}</strong></div>
+        </div>
+        <div style="max-height: 200px; overflow-y: auto;">
+          <table class="ctbl">
+            <thead><tr><th>日期</th><th>操作</th><th>价格</th><th>股数</th><th>单次收益</th></tr></thead>
+            <tbody>
+              ${(res.trades || []).slice().reverse().map(t => `
+                <tr>
+                  <td>${t.date}</td>
+                  <td style="color:${t.action==='buy'?'var(--red)':'var(--grn)'}">${t.action==='buy'?'买入':'卖出'}</td>
+                  <td>${t.price.toFixed(2)}</td>
+                  <td>${t.shares}</td>
+                  <td style="color:${t.return_pct!=null? (t.return_pct>=0?'var(--red)':'var(--grn)') : 'var(--t3)'}">${t.return_pct != null ? t.return_pct.toFixed(2) + '%' : '—'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+window.applyBacktestRange = function() {
+    const sDate = document.getElementById('bt_start').value;
+    const eDate = document.getElementById('bt_end').value;
+    window._backtest_start = sDate;
+    window._backtest_end = eDate;
+    
+    const dates = window._mainDates;
+    if (!dates || dates.length === 0) return;
+    
+    let sIdx = 0, eIdx = dates.length - 1;
+    for (let i = 0; i < dates.length; i++) {
+        if (dates[i] >= sDate) { sIdx = i; break; }
+    }
+    for (let i = dates.length - 1; i >= 0; i--) {
+        if (dates[i] <= eDate) { eIdx = i; break; }
+    }
+    
+    // Zoom the chart to the selected range
+    if (charts.mainC) {
+        charts.mainC.options.scales.x.min = dates[sIdx];
+        charts.mainC.options.scales.x.max = dates[eIdx];
+        charts.mainC.update('none');
+    }
+    
+    updateMainChartData(sIdx, eIdx);
+};
+
 function renderOv(d, item) {
   const lat = d.latest || {};
   const nav = lat.nav ?? lat.close ?? 0;
@@ -788,7 +957,17 @@ function renderOv(d, item) {
   const chgEl = document.getElementById('ov-chg');
   chgEl.textContent = `${isUp?'▲':'▼'} ${Math.abs(chg).toFixed(2)}%`;
   chgEl.className = 'px-chg ' + (isUp?'up':'dn');
-  document.getElementById('mc-title').textContent = item.type==='fund' ? '净值 · 趋势通道 ±20%' : '收盘价 · 趋势通道 ±20%';
+  document.getElementById('mc-title').innerHTML = `
+    ${item.type==='fund' ? '净值 · 趋势通道' : '收盘价 · 趋势通道'}
+    <select id="priceTypeSel" onchange="window._currentPriceType=this.value; updateMainChartData();" style="margin-left: 10px; background: var(--bg2); color: var(--t1); border: 1px solid var(--b1); border-radius: var(--r); outline: none; font-size: 11px; padding: 2px 4px;">
+      <option value="normal" ${window._currentPriceType==='normal'?'selected':''}>不复权</option>
+      <option value="qfq" ${window._currentPriceType==='qfq'?'selected':''}>前复权</option>
+    </select>
+    <select id="trendTypeSel" onchange="window._currentTrendType=this.value; updateMainChartData();" style="margin-left: 10px; background: var(--bg2); color: var(--t1); border: 1px solid var(--b1); border-radius: var(--r); outline: none; font-size: 11px; padding: 2px 4px;">
+      <option value="sma" ${window._currentTrendType==='sma'?'selected':''}>简单移动平均(SMA) ±20%</option>
+      <option value="ema_trailing" ${window._currentTrendType==='ema_trailing'?'selected':''}>指数移动平均(EMA) + 移动止损</option>
+    </select>
+  `;
 
   // Metric strip
   const r = d.returns || {}, dd = d.drawdown || {}, v = d.valuation || {}, qs = d.quant_score || {};
@@ -814,21 +993,11 @@ function renderOv(d, item) {
   ).join('');
 
   // Main chart — with crosshair tooltip + zoom + brush navigator
-  const prices = d.nav || d.close || [];
-  const dates  = d.dates || [];
-  const ch = d.channel || {};
-  const tr = d.trading_ranges || {};
-  // Store globally for zoom/brush access
-  window._mainPrices = prices;
-  window._mainDates  = dates;
-  window._mainCh     = ch;
-  window._mainTR     = tr;
+  // Initial state setup if not defined
+  if (window._currentPriceType === undefined) window._currentPriceType = 'normal';
+  if (window._currentTrendType === undefined) window._currentTrendType = 'sma';
 
-  dC('mainC');
-  if (prices.length) {
-    buildMainChart(dates, prices, ch, tr);
-    buildBrushChart(dates, prices);
-  }
+  updateMainChartData();
 
   // Signal
   const sigIco = {buy:'↑',hold:'→',sell:'↓'};
@@ -845,19 +1014,6 @@ function renderOv(d, item) {
   pgf.className = 'pgfill ' + (pos>=80?'high':pos>=45?'mid':'low');
   document.getElementById('pgp').textContent = pos + '%';
   document.getElementById('pgHint').textContent = pos>=80?'高仓位，趋势强劲':pos>=50?'标配仓位，等待确认':'低仓位，等待底部信号';
-
-  // Key levels
-  const cur = prices[prices.length-1];
-  document.getElementById('klevels').innerHTML = [
-    {l:'+20%上轨', v:fn(ch.current_upper,4), cl:'#e74c3c'},
-    {l:'趋势中轨',  v:fn(ch.current_mid,4),   cl:'#f39c12'},
-    {l:'-20%下轨', v:fn(ch.current_lower,4),  cl:'#2ecc71'},
-    {l:'买入区上沿', v:fn(tr.latest?.buy_zone_price,4), cl:'#2ecc71'},
-    {l:'减仓区下沿', v:fn(tr.latest?.sell_zone_price,4), cl:'#e74c3c'},
-    {l:'参考仓位', v:tr.latest?.suggested_position_pct!=null?tr.latest.suggested_position_pct+'%':'—', cl:'#c9785f'},
-    {l:'当前值',   v:fn(cur,4),                cl:'#3d90f5'},
-    {l:'偏离中轨', v:(ch.deviation_pct!=null?(ch.deviation_pct>0?'+':'')+ch.deviation_pct.toFixed(1)+'%':'—'), cl:ch.deviation_pct>0?'#e74c3c':'#2ecc71'},
-  ].map(r=>`<div class="dr"><span class="dl">${r.l}</span><div style="display:flex;align-items:center;gap:7px"><div style="width:20px;height:2px;background:${r.cl};border-radius:1px"></div><span class="dv" style="color:${r.cl}">${r.v}</span></div></div>`).join('');
 
   // Drawdown chart
   dC('ddC');
@@ -1652,12 +1808,14 @@ const crosshairPlugin = {
 // Instead we just update chart.data + call update('none') which avoids
 // the Chart.js resize-observer loop that caused the infinite stretch.
 
-function buildMainChart(dates, prices, ch, tr={}) {
+function buildMainChart(dates, prices, ch, tr={}, buySignals=null, sellSignals=null) {
   // Store globally for window buttons and brush
   window._mainDates  = dates;
   window._mainPrices = prices;
   window._mainCh     = ch;
   window._mainTR     = tr || {};
+  window._mainBuySignals = buySignals;
+  window._mainSellSignals = sellSignals;
   window._mainWinStart = 0;
   window._mainWinEnd   = dates.length - 1;
 
@@ -1670,18 +1828,27 @@ function buildMainChart(dates, prices, ch, tr={}) {
   // Destroy only when first building (data switch), not during zoom
   if (charts.mainC) { charts.mainC.destroy(); delete charts.mainC; }
 
+  const datasets = [
+    { label:'价格',     data: prices,       borderColor:'#3d90f5',               borderWidth:2.5, pointRadius:0, tension:.3, fill:false,  order:2 },
+    { label:'+20%上轨', data: ch.upper||[], borderColor:'rgba(231,76,60,.55)',    borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:.3, fill:false, order:3 },
+    { label:'趋势中轨', data: ch.mid||[],   borderColor:'rgba(200,216,232,.2)',   borderWidth:1,   pointRadius:0, tension:.3, fill:false, order:4 },
+    { label:'-20%下轨/止损', data: ch.lower||[], borderColor:'rgba(46,204,113,.55)',   borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:.3, fill:'2', backgroundColor:'rgba(46,204,113,.05)', order:5 },
+    { label:'参考持仓', data: tr.reference_position||[], yAxisID:'y1', borderColor:'rgba(201,120,95,.85)', backgroundColor:'rgba(201,120,95,.12)', borderWidth:1.6, pointRadius:0, stepped:true, tension:0, fill:true, order:6 },
+  ];
+
+  if (buySignals) {
+    datasets.push({ label:'买入', data: buySignals, type: 'scatter', backgroundColor: 'rgba(231,76,60,1)', borderColor: 'rgba(255,255,255,0.5)', borderWidth: 1, pointStyle: 'triangle', pointRadius: 8, pointHoverRadius: 10, order: 0 });
+  }
+  if (sellSignals) {
+    datasets.push({ label:'卖出', data: sellSignals, type: 'scatter', backgroundColor: 'rgba(46,204,113,1)', borderColor: 'rgba(255,255,255,0.5)', borderWidth: 1, pointStyle: 'triangle', rotation: 180, pointRadius: 8, pointHoverRadius: 10, order: 0 });
+  }
+
   charts.mainC = new Chart(canvas, {
     type: 'line',
     plugins: [crosshairPlugin],
     data: {
       labels: dates,
-      datasets: [
-        { label:'价格',     data: prices,       borderColor:'#3d90f5',               borderWidth:2.5, pointRadius:0, tension:.3, fill:false,  order:1 },
-        { label:'+20%上轨', data: ch.upper||[], borderColor:'rgba(231,76,60,.55)',    borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:.3, fill:false },
-        { label:'趋势中轨', data: ch.mid||[],   borderColor:'rgba(200,216,232,.2)',   borderWidth:1,   pointRadius:0, tension:.3, fill:false },
-        { label:'-20%下轨', data: ch.lower||[], borderColor:'rgba(46,204,113,.55)',   borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:.3, fill:'2', backgroundColor:'rgba(46,204,113,.05)' },
-        { label:'参考持仓', data: tr.reference_position||[], yAxisID:'y1', borderColor:'rgba(201,120,95,.85)', backgroundColor:'rgba(201,120,95,.12)', borderWidth:1.6, pointRadius:0, stepped:true, tension:0, fill:true, order:3 },
-      ]
+      datasets: datasets
     },
     options: {
       responsive: true,
@@ -1727,6 +1894,8 @@ function setMainWindow(startIdx, endIdx, animate) {
   const prices = window._mainPrices || [];
   const ch     = window._mainCh     || {};
   const tr     = window._mainTR     || {};
+  const buySignals = window._mainBuySignals;
+  const sellSignals = window._mainSellSignals;
 
   const s = Math.max(0, startIdx);
   const e = Math.min(dates.length - 1, endIdx);
@@ -1740,6 +1909,14 @@ function setMainWindow(startIdx, endIdx, animate) {
   chart.data.datasets[3].data = (ch.lower||[]).slice(s, e + 1);
   if (chart.data.datasets[4]) {
     chart.data.datasets[4].data = (tr.reference_position||[]).slice(s, e + 1);
+  }
+  
+  let dsIdx = 5;
+  if (buySignals) {
+    chart.data.datasets[dsIdx++].data = buySignals.slice(s, e + 1);
+  }
+  if (sellSignals) {
+    chart.data.datasets[dsIdx++].data = sellSignals.slice(s, e + 1);
   }
 
   // Recompute y precision for the visible slice
@@ -2025,7 +2202,11 @@ function initBrushEvents(hitCanvas, dates) {
 
     brushState.dragging = false;
     brushState.resizing = null;
-    if (en - s >= 1) setMainWindow(s, en, false);
+    if (en - s >= 1) {
+      setMainWindow(s, en, false);
+      // Automatically update strategy with new dates
+      updateMainChartData(s, en);
+    }
   });
 
   // Touch
@@ -2046,7 +2227,10 @@ function initBrushEvents(hitCanvas, dates) {
     // Commit last painted state
     const s  = window._mainWinStart ?? 0;
     const en = window._mainWinEnd   ?? dates.length - 1;
-    setMainWindow(s, en, false);
+    if (en - s >= 1) {
+      setMainWindow(s, en, false);
+      updateMainChartData(s, en);
+    }
   });
 }
 

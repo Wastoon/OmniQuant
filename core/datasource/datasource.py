@@ -104,8 +104,8 @@ class DataSource:
             "cache_ttl_hours": CACHE_TTL // 3600,
         }
         
-    def stock_hist(self, code, start, end):
-        key = f"kline_{code}_{start}_{end}_D_v1"
+    def stock_hist(self, code, start, end, adjust: str = ""):
+        key = f"kline_{code}_{start}_{end}_{adjust}_D_v1"
 
         cached = self.cache.load(key)
         if cached is not None:
@@ -115,7 +115,7 @@ class DataSource:
         try:
             # 一级：优先使用 Tushare（如果用户提供了 token），避免 AkShare/东方财富偶发断连
             adapters = [(self.ts, "Tushare"), (self.ak, "AkShare")] if self.ts.available else None
-            df = self._call("stock_hist", code, start, end, adapters=adapters)
+            df = self._call("stock_hist", code, start, end, adjust=adjust, adapters=adapters)
             df = normalize_kline(df)
             df = DataValidator.validate_kline(df)
             self.cache.save(key, df)
@@ -185,9 +185,14 @@ class DataSource:
 
         # ───── 1️⃣ AkShare 主源 ─────
         try:
-            df = self.ak.ak.fund_open_fund_info_em(symbol=code)
+            df_nav = self.ak.ak.fund_open_fund_info_em(symbol=code, indicator="单位净值走势")
+            df_acc = self.ak.ak.fund_open_fund_info_em(symbol=code, indicator="累计净值走势")
 
-            if df is not None and not df.empty:
+            if df_nav is not None and not df_nav.empty:
+                df = df_nav.copy()
+                if df_acc is not None and not df_acc.empty:
+                    df = pd.merge(df_nav, df_acc, on="净值日期", how="left")
+                
                 # 标准化字段
                 col_map = {
                     "净值日期": "date",
@@ -199,11 +204,18 @@ class DataSource:
                 if "date" in df.columns and "nav" in df.columns:
                     df["date"] = pd.to_datetime(df["date"], errors="coerce")
                     df["nav"] = pd.to_numeric(df["nav"], errors="coerce")
+                    
+                    # Also include acc_nav (累计净值) for qfq
+                    if "acc_nav" in df.columns:
+                        df["acc_nav"] = pd.to_numeric(df["acc_nav"], errors="coerce")
+                        df["nav_qfq"] = df["acc_nav"]
 
                     df = df.sort_values("date").dropna(subset=["date", "nav"])
 
                     if len(df) > 10:
                         out = df[["date", "nav"]]
+                        if "nav_qfq" in df.columns:
+                            out = df[["date", "nav", "nav_qfq"]]
                         self.cache.save(key, out)
                         self._log["fund_nav"] = "akshare"
                         return out
@@ -234,11 +246,15 @@ class DataSource:
 
                 df["date"] = pd.to_datetime(df["FSRQ"], errors="coerce")
                 df["nav"] = pd.to_numeric(df["DWJZ"], errors="coerce")
+                if "LJJZ" in df.columns:
+                    df["nav_qfq"] = pd.to_numeric(df["LJJZ"], errors="coerce")
 
                 df = df.sort_values("date").dropna(subset=["date", "nav"])
 
                 if len(df) > 10:
                     out = df[["date", "nav"]]
+                    if "nav_qfq" in df.columns:
+                        out = df[["date", "nav", "nav_qfq"]]
                     self.cache.save(key, out)
                     self._log["fund_nav"] = "eastmoney"
                     return out

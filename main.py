@@ -44,7 +44,7 @@ from core.factors import (
     DEFAULT_WEIGHTS, sf,
 )
 from core.datasource.tools import sanitize_dataframe, clean_for_json
-from core.strategy import generate_trade_advice, calc_trading_ranges, backtest_strategy
+from core.strategy import generate_trade_advice, calc_trading_ranges, backtest_strategy, calc_ema_trailing_strategy
 
 # ═══════════════════════════════════════════════════════════════
 # 初始化
@@ -395,20 +395,36 @@ def get_fund(
 
     prices = nav_df["nav"].tolist()
     dates  = nav_df["date"].dt.strftime("%Y-%m-%d").tolist()
-
+    
+    # 基金前复权数据（累计净值）
+    prices_qfq = nav_df["nav_qfq"].tolist() if "nav_qfq" in nav_df.columns else prices
+    
     channel = calc_trend_channel(prices)
     dd      = calc_drawdown(prices)
     returns = calc_returns(prices, dates)
     tech    = calc_technical(nav_df["nav"]) if len(prices) >= 26 else {}
-    strategy = generate_trade_advice("fund", prices, dates, tech, dd, {}, {})
-    trading_ranges = calc_trading_ranges(prices, dates)
+    
+    # 前复权指标
+    channel_qfq = calc_trend_channel(prices_qfq) if prices_qfq else {}
+    dd_qfq      = calc_drawdown(prices_qfq) if prices_qfq else {}
+    returns_qfq = calc_returns(prices_qfq, dates) if prices_qfq else {}
+    tech_qfq    = calc_technical(pd.Series(prices_qfq)) if len(prices_qfq) >= 26 else {}
 
-    # 信号
-    cur = prices[-1]
-    mid = channel["current_mid"] or cur
-    lo  = channel["current_lower"] or cur * 0.8
-    hi  = channel["current_upper"] or cur * 1.2
-    dev = channel["deviation_pct"]
+    # 使用前复权数据计算策略信号和趋势通道区间
+    prices_to_use = prices_qfq if prices_qfq else prices
+    tech_to_use = tech_qfq if tech_qfq else tech
+    dd_to_use = dd_qfq if dd_qfq else dd
+    ch_to_use = channel_qfq if channel_qfq else channel
+
+    strategy = generate_trade_advice("fund", prices_to_use, dates, tech_to_use, dd_to_use, {}, {})
+    trading_ranges = calc_trading_ranges(prices_to_use, dates)
+
+    # 信号分析使用前复权数据
+    cur = prices_to_use[-1]
+    mid = ch_to_use.get("current_mid") or cur
+    lo  = ch_to_use.get("current_lower") or cur * 0.8
+    hi  = ch_to_use.get("current_upper") or cur * 1.2
+    dev = ch_to_use.get("deviation_pct", 0)
 
     if cur < lo:
         signal, pos = "buy",  75
@@ -436,6 +452,11 @@ def get_fund(
         "drawdown": dd,
         "returns": returns,
         "technical": tech,
+        "close_qfq": prices_qfq,
+        "channel_qfq": channel_qfq,
+        "drawdown_qfq": dd_qfq,
+        "returns_qfq": returns_qfq,
+        "technical_qfq": tech_qfq,
         "signal": signal,
         "signal_reason": reason,
         "suggested_position": pos,
@@ -475,22 +496,35 @@ def get_stock(
 
     # ── 行情 ──
     try:
-        hist_df = ds.stock_hist(code, start, end)
+        # 获取不复权的数据
+        hist_df = ds.stock_hist(code, start, end, adjust="")
         hist_df = sanitize_dataframe(hist_df)
         if "date" not in hist_df.columns:
             raise HTTPException(500, "数据源返回缺少 date 字段")
+            
+        # 获取前复权的数据
+        hist_qfq_df = ds.stock_hist(code, start, end, adjust="qfq")
+        hist_qfq_df = sanitize_dataframe(hist_qfq_df)
     except DataUnavailableError as e:
         raise HTTPException(400, str(e))
 
     prices = hist_df["close"].tolist()
     dates  = hist_df["date"].dt.strftime("%Y-%m-%d").tolist()
     vols   = hist_df.get("volume", pd.Series(dtype=float))
+    
+    prices_qfq = hist_qfq_df["close"].tolist() if not hist_qfq_df.empty and "close" in hist_qfq_df.columns else []
 
     # ── 指标计算 ──
     tech    = calc_technical(hist_df["close"], vols)
     channel = calc_trend_channel(prices)
     dd      = calc_drawdown(prices)
     returns = calc_returns(prices, dates)
+    
+    # ── 指标计算 (前复权) ──
+    tech_qfq    = calc_technical(hist_qfq_df["close"], hist_qfq_df.get("volume", pd.Series(dtype=float))) if not hist_qfq_df.empty else {}
+    channel_qfq = calc_trend_channel(prices_qfq) if prices_qfq else {}
+    dd_qfq      = calc_drawdown(prices_qfq) if prices_qfq else {}
+    returns_qfq = calc_returns(prices_qfq, dates) if prices_qfq else {}
 
     # ── 实时估值 ──
     info    = ds.stock_info(code)
@@ -526,9 +560,14 @@ def get_stock(
             pass
 
     # ── 多因子评分 ──
-    quant_score = multi_factor_score(fin_factors, valuation, tech, dd, weights=w)
-    strategy = generate_trade_advice("stock", prices, dates, tech, dd, valuation, quant_score)
-    trading_ranges = calc_trading_ranges(prices, dates)
+    # 使用前复权数据进行策略信号生成
+    tech_to_use = tech_qfq if tech_qfq else tech
+    dd_to_use = dd_qfq if dd_qfq else dd
+    prices_to_use = prices_qfq if prices_qfq else prices
+    
+    quant_score = multi_factor_score(fin_factors, valuation, tech_to_use, dd_to_use, weights=w)
+    strategy = generate_trade_advice("stock", prices_to_use, dates, tech_to_use, dd_to_use, valuation, quant_score)
+    trading_ranges = calc_trading_ranges(prices_to_use, dates)
 
     # ── 整合返回 ──
     result = {
@@ -545,6 +584,14 @@ def get_stock(
         "drawdown": dd,
         "returns": returns,
         "technical": tech,
+        "close_qfq": prices_qfq,
+        "open_qfq": hist_qfq_df.get("open", pd.Series(dtype=float)).tolist() if not hist_qfq_df.empty else [],
+        "high_qfq": hist_qfq_df.get("high", pd.Series(dtype=float)).tolist() if not hist_qfq_df.empty else [],
+        "low_qfq": hist_qfq_df.get("low", pd.Series(dtype=float)).tolist() if not hist_qfq_df.empty else [],
+        "channel_qfq": channel_qfq,
+        "drawdown_qfq": dd_qfq,
+        "returns_qfq": returns_qfq,
+        "technical_qfq": tech_qfq,
         "valuation": valuation,
         "financial_factors": fin_factors,
         "quant_score": quant_score,
@@ -721,6 +768,50 @@ def strategy_backtest(
         "backtest": result,
     })
 
+
+
+@app.get("/api/strategy/ema_trailing/{asset_type}/{code}")
+def strategy_ema_trailing(
+    asset_type: str,
+    code: str,
+    years: int = Query(3, ge=1, le=10, description="回测历史年数"),
+    start_date: str = Query(None, description="回测开始日期 YYYY-MM-DD"),
+    end_date: str = Query(None, description="回测结束日期 YYYY-MM-DD"),
+    adjust: str = Query("qfq", description="复权类型"),
+):
+    """EMA 移动止损策略：捕获上升趋势中段，避免假性下跌"""
+    if asset_type not in ("stock", "fund"):
+        raise HTTPException(400, "asset_type 仅支持 stock 或 fund")
+
+    ds = get_ds()
+    try:
+        if asset_type == "fund":
+            nav_df = ds.fund_nav(code)
+            if adjust == "qfq" and "nav_qfq" in nav_df.columns:
+                df = nav_df.rename(columns={"nav_qfq": "close"})
+            else:
+                df = nav_df.rename(columns={"nav": "close"})
+            # fund_nav returns all history, we need to filter if start/end is provided, but calc_ema_trailing_strategy handles it now
+        else:
+            start, end = _years_to_dates(years)
+            # 如果提供了具体的开始结束日期，且比按年计算的范围更大，则使用提供的范围去获取数据，保证能取到
+            if start_date and start_date < start:
+                start = start_date
+            # 对于股票回测，根据传入的 adjust 参数获取数据
+            df = ds.stock_hist(code, start, end, adjust=adjust)
+            df = sanitize_dataframe(df)
+            
+        result = calc_ema_trailing_strategy(df, start_date=start_date, end_date=end_date)
+    except (DataUnavailableError, ValueError) as e:
+        raise HTTPException(400, str(e))
+
+    return clean_for_json({
+        "code": code,
+        "type": asset_type,
+        "years": years,
+        "strategy": "ema20_atr_trailing_stop",
+        "result": result,
+    })
 
 
 # ─── 缓存管理 ────────────────────────────────────────────────

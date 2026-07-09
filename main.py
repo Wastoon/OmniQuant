@@ -21,7 +21,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -44,7 +44,7 @@ from core.factors import (
     DEFAULT_WEIGHTS, sf,
 )
 from core.datasource.tools import sanitize_dataframe, clean_for_json
-from core.strategy import generate_trade_advice, calc_trading_ranges, backtest_strategy, calc_ema_trailing_strategy
+from core.strategy import generate_trade_advice, calc_trading_ranges, backtest_strategy, calc_ema_trailing_strategy, summarize_strategy_result
 
 # ═══════════════════════════════════════════════════════════════
 # 初始化
@@ -69,6 +69,11 @@ except Exception:
 # 全局数据源（单例）
 _ds: Optional[DataSource] = None
 AMBIGUOUS_FUND_CODES = {"002610"}
+
+REGRESSION_PRESETS = {
+    "fund_core": ["161725", "002610", "110022", "163406", "005827", "000083", "001938", "007301"],
+    "stock_core": ["600519", "000858", "002304", "000333", "600036", "601318", "300750", "600276"],
+}
 
 def get_ds() -> DataSource:
     global _ds
@@ -801,7 +806,7 @@ def strategy_ema_trailing(
             df = ds.stock_hist(code, start, end, adjust=adjust)
             df = sanitize_dataframe(df)
             
-        result = calc_ema_trailing_strategy(df, start_date=start_date, end_date=end_date)
+        result = calc_ema_trailing_strategy(df, start_date=start_date, end_date=end_date, asset_type=asset_type)
     except (DataUnavailableError, ValueError) as e:
         raise HTTPException(400, str(e))
 
@@ -811,6 +816,137 @@ def strategy_ema_trailing(
         "years": years,
         "strategy": "ema20_atr_trailing_stop",
         "result": result,
+    })
+
+
+def _parse_regression_codes(codes) -> list:
+    if codes is None:
+        return []
+    if isinstance(codes, str):
+        raw = re.split(r"[\s,，;；]+", codes.strip())
+    elif isinstance(codes, list):
+        raw = codes
+    else:
+        raw = []
+    seen, result = set(), []
+    for item in raw:
+        code = str(item).strip()
+        if code and code not in seen:
+            seen.add(code)
+            result.append(code)
+    return result
+
+
+def _filter_df_by_date(df: pd.DataFrame, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+    if df is None or df.empty or "date" not in df.columns:
+        return df
+    data = df.copy()
+    data["date"] = pd.to_datetime(data["date"], errors="coerce")
+    if start_date:
+        data = data[data["date"] >= pd.to_datetime(start_date)]
+    if end_date:
+        data = data[data["date"] <= pd.to_datetime(end_date)]
+    return data.reset_index(drop=True)
+
+
+@app.post("/api/strategy/regression", response_class=SafeJSONResponse)
+def strategy_regression(payload: dict = Body(...)):
+    """批量运行 EMA/ATR 策略回归测试，返回单标的与等权组合汇总。"""
+    asset_type = str(payload.get("asset_type") or "fund")
+    if asset_type not in ("stock", "fund"):
+        raise HTTPException(400, "asset_type 仅支持 stock 或 fund")
+
+    years = int(payload.get("years") or 3)
+    years = max(1, min(10, years))
+    start_date = payload.get("start_date") or None
+    end_date = payload.get("end_date") or None
+    adjust = payload.get("adjust") or "qfq"
+    initial_cash = float(payload.get("initial_cash") or 100000.0)
+    limit = max(1, min(80, int(payload.get("limit") or 30)))
+    preset = payload.get("preset") or ("fund_core" if asset_type == "fund" else "stock_core")
+
+    codes = _parse_regression_codes(payload.get("codes"))
+    if not codes:
+        codes = list(REGRESSION_PRESETS.get(preset) or REGRESSION_PRESETS["fund_core" if asset_type == "fund" else "stock_core"])
+    codes = codes[:limit]
+
+    ds = get_ds()
+    results, failures = [], []
+    y_start, y_end = _years_to_dates(years)
+    fetch_start = start_date if start_date and start_date < y_start else y_start
+    fetch_end = end_date or y_end
+
+    for code in codes:
+        try:
+            if asset_type == "fund":
+                nav_df = ds.fund_nav(code)
+                if adjust == "qfq" and "nav_qfq" in nav_df.columns:
+                    df = nav_df.rename(columns={"nav_qfq": "close"})
+                else:
+                    df = nav_df.rename(columns={"nav": "close"})
+            else:
+                df = ds.stock_hist(code, fetch_start, fetch_end, adjust=adjust)
+                df = sanitize_dataframe(df)
+
+            df = _filter_df_by_date(df, start_date, end_date)
+            if df is None or df.empty or "close" not in df.columns or len(df.dropna(subset=["close"])) < 40:
+                raise ValueError("有效行情数据不足，至少需要约 40 个交易日")
+
+            result = calc_ema_trailing_strategy(df, initial_cash=initial_cash, asset_type=asset_type)
+            summary = summarize_strategy_result(result, df["close"], initial_cash=initial_cash)
+            if not summary:
+                raise ValueError("策略结果为空")
+
+            results.append({
+                "code": code,
+                "type": asset_type,
+                "name": code,
+                "start_date": str(df["date"].iloc[0])[:10] if "date" in df.columns else "",
+                "end_date": str(df["date"].iloc[-1])[:10] if "date" in df.columns else "",
+                "metrics": summary,
+                "trades": result.get("trades", [])[-10:],
+                "equity_curve": result.get("equity_curve", []),
+            })
+        except Exception as e:
+            failures.append({"code": code, "type": asset_type, "error": str(e)})
+
+    if results:
+        total_returns = [r["metrics"]["total_return_pct"] for r in results]
+        buy_hold_returns = [r["metrics"]["buy_hold_return_pct"] for r in results]
+        excess_returns = [r["metrics"]["excess_return_pct"] for r in results]
+        max_drawdowns = [r["metrics"]["max_drawdown_pct"] for r in results]
+        trade_counts = [r["metrics"]["trade_count"] for r in results]
+        best = max(results, key=lambda x: x["metrics"]["total_return_pct"])
+        worst = min(results, key=lambda x: x["metrics"]["total_return_pct"])
+        aggregate = {
+            "tested_count": len(results),
+            "failed_count": len(failures),
+            "avg_total_return_pct": round(float(np.mean(total_returns)), 2),
+            "median_total_return_pct": round(float(np.median(total_returns)), 2),
+            "avg_buy_hold_return_pct": round(float(np.mean(buy_hold_returns)), 2),
+            "avg_excess_return_pct": round(float(np.mean(excess_returns)), 2),
+            "positive_ratio_pct": round(sum(1 for x in total_returns if x > 0) / len(total_returns) * 100, 2),
+            "avg_max_drawdown_pct": round(float(np.mean(max_drawdowns)), 2),
+            "total_trade_count": int(sum(trade_counts)),
+            "avg_trade_count": round(float(np.mean(trade_counts)), 1),
+            "best": {"code": best["code"], "return_pct": best["metrics"]["total_return_pct"]},
+            "worst": {"code": worst["code"], "return_pct": worst["metrics"]["total_return_pct"]},
+        }
+    else:
+        aggregate = {"tested_count": 0, "failed_count": len(failures)}
+
+    return clean_for_json({
+        "strategy": "ema_atr_trailing",
+        "asset_type": asset_type,
+        "years": years,
+        "start_date": start_date,
+        "end_date": end_date,
+        "adjust": adjust,
+        "preset": preset,
+        "preset_options": REGRESSION_PRESETS,
+        "aggregate": aggregate,
+        "results": results,
+        "failures": failures,
     })
 
 

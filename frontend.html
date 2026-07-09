@@ -280,6 +280,7 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
     <div class="tab" onclick="goTab(this,'quant')">QUANT FACTORS</div>
     <div class="tab" onclick="goTab(this,'ind')">INDUSTRY</div>
     <div class="tab" onclick="goTab(this,'cmp')">COMPARE</div>
+    <div class="tab" onclick="goTab(this,'reg')">REGRESSION</div>
   </nav>
   <div class="tr">
     <div class="api-st chk" id="apiSt" onclick="openModal()">API: —</div>
@@ -584,6 +585,45 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
       </div>
     </div>
 
+    <!-- STRATEGY REGRESSION -->
+    <div id="t-reg" style="display:none">
+      <div class="fhd"><div class="fhd-l"><div class="fn">策略回归测试 · 批量收益评估</div>
+        <div class="fsub"><span>对一组股票/基金运行 EMA + ATR 策略，查看单标的与等权组合表现</span></div>
+      </div></div>
+      <div class="pnl" style="margin-bottom:1px">
+        <div class="ph"><span class="pt">测试集配置</span></div>
+        <div class="pb">
+          <div style="display:grid;grid-template-columns:120px 150px 110px 130px 130px 1fr;gap:8px;align-items:end">
+            <div><div class="lbl" style="margin-bottom:4px">类型</div><select class="inp" id="regType"><option value="fund">基金</option><option value="stock">股票</option></select></div>
+            <div><div class="lbl" style="margin-bottom:4px">预设池</div><select class="inp" id="regPreset"><option value="fund_core">核心基金池</option><option value="stock_core">核心股票池</option></select></div>
+            <div><div class="lbl" style="margin-bottom:4px">年数</div><select class="inp" id="regYears"><option value="1">1Y</option><option value="3" selected>3Y</option><option value="5">5Y</option><option value="8">8Y</option></select></div>
+            <div><div class="lbl" style="margin-bottom:4px">开始日期</div><input class="inp" id="regStart" placeholder="可选 YYYY-MM-DD"></div>
+            <div><div class="lbl" style="margin-bottom:4px">结束日期</div><input class="inp" id="regEnd" placeholder="可选 YYYY-MM-DD"></div>
+            <div style="display:flex;gap:6px;align-items:end"><button class="btn" onclick="runRegression()">▶ 运行回归</button><button class="zoom-btn" onclick="fillRegressionFromWL()">使用自选</button></div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="lbl" style="margin-bottom:4px">自定义代码池（逗号/空格/换行分隔；留空则使用预设池）</div>
+            <textarea class="inp" id="regCodes" style="height:64px;resize:vertical;font-family:var(--mono)" placeholder="如基金: 161725, 002610, 110022&#10;如股票: 600519, 000858, 300750"></textarea>
+          </div>
+          <div id="regStatus" style="font-family:var(--mono);font-size:10px;color:var(--t3);margin-top:8px;min-height:14px"></div>
+        </div>
+      </div>
+      <div class="g g31" style="margin-bottom:1px">
+        <div class="pnl">
+          <div class="ph"><span class="pt">策略收益 vs 买入持有</span></div>
+          <div class="pb"><div class="cw" style="height:300px"><canvas id="regC"></canvas></div></div>
+        </div>
+        <div class="pnl">
+          <div class="ph"><span class="pt">组合汇总</span></div>
+          <div class="pb" id="regSummary"><div style="font-family:var(--mono);font-size:11px;color:var(--t3)">运行后显示结果</div></div>
+        </div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><span class="pt">单标的明细</span></div>
+        <div class="pb" id="regTable"><div style="font-family:var(--mono);font-size:11px;color:var(--t3)">支持预设池或用户输入代码池</div></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -706,6 +746,18 @@ async function get(path) {
   if (!apiOk) { showErr('后端未连接，请点击右上角 "API" 按钮配置。'); return null; }
   try {
     const r = await fetch(API + path, {signal: AbortSignal.timeout(35000)});
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return await r.json();
+  } catch(e) { showErr(`请求失败: ${e.message}`); return null; }
+}
+
+async function post(path, body, timeout=180000) {
+  if (!apiOk) { showErr('后端未连接，请点击右上角 "API" 按钮配置。'); return null; }
+  try {
+    const r = await fetch(API + path, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body || {}),
+      signal: AbortSignal.timeout(timeout)
+    });
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
     return await r.json();
   } catch(e) { showErr(`请求失败: ${e.message}`); return null; }
@@ -1592,6 +1644,74 @@ function renderCmp() {
 
 
 // ═══════════════════════════════════════════════
+// STRATEGY REGRESSION
+// ═══════════════════════════════════════════════
+function fillRegressionFromWL() {
+  const type = document.getElementById('regType').value;
+  const codes = wl.filter(x => x.type === type).map(x => x.code).join(', ');
+  document.getElementById('regCodes').value = codes;
+}
+
+async function runRegression() {
+  hideErr(); setLoad(true);
+  const status = document.getElementById('regStatus');
+  status.textContent = '批量回测运行中，数据源较慢时可能需要几十秒...';
+  const payload = {
+    asset_type: document.getElementById('regType').value,
+    preset: document.getElementById('regPreset').value,
+    years: parseInt(document.getElementById('regYears').value || '3', 10),
+    start_date: document.getElementById('regStart').value.trim() || null,
+    end_date: document.getElementById('regEnd').value.trim() || null,
+    codes: document.getElementById('regCodes').value.trim(),
+    adjust: 'qfq',
+    limit: 40
+  };
+  const res = await post('/api/strategy/regression', payload, 240000);
+  setLoad(false);
+  if (!res) { status.textContent = '回测失败'; return; }
+  status.textContent = `完成：成功 ${res.aggregate?.tested_count || 0} 个，失败 ${res.aggregate?.failed_count || 0} 个`;
+  renderRegression(res);
+}
+
+function renderRegression(res) {
+  const ag = res.aggregate || {};
+  const box = (name, val, cls='c-acc', sub='') => `<div class="qcard"><div class="qcard-t">${name}</div><div class="qcard-v ${cls}">${val}</div>${sub?`<div class="qcard-sub">${sub}</div>`:''}</div>`;
+  document.getElementById('regSummary').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr;gap:8px">
+      ${box('平均策略收益', fret(ag.avg_total_return_pct), rc(ag.avg_total_return_pct), `买入持有 ${fret(ag.avg_buy_hold_return_pct)}`)}
+      ${box('平均超额收益', fret(ag.avg_excess_return_pct), rc(ag.avg_excess_return_pct), `正收益占比 ${fn(ag.positive_ratio_pct,1,'%')}`)}
+      ${box('平均最大回撤', fret(ag.avg_max_drawdown_pct), 'c-pos', `总交易 ${ag.total_trade_count || 0} 次`)}
+      ${box('最佳 / 最差', `${ag.best?.code || '—'} / ${ag.worst?.code || '—'}`, 'c-acc', `${fret(ag.best?.return_pct)} / ${fret(ag.worst?.return_pct)}`)}
+    </div>`;
+
+  const rows = (res.results || []).slice().sort((a,b)=>(b.metrics?.total_return_pct||0)-(a.metrics?.total_return_pct||0));
+  document.getElementById('regTable').innerHTML = rows.length ? `
+    <table class="ctbl"><thead><tr><th>代码</th><th>区间</th><th>策略收益</th><th>买入持有</th><th>超额</th><th>最大回撤</th><th>交易</th><th>胜率</th><th>均持有</th></tr></thead>
+      <tbody>${rows.map(r=>{ const m=r.metrics||{}; return `<tr>
+        <td>${r.code}</td><td>${r.start_date || '—'} ~ ${r.end_date || '—'}</td>
+        <td class="${rc(m.total_return_pct)}">${fret(m.total_return_pct)}</td>
+        <td class="${rc(m.buy_hold_return_pct)}">${fret(m.buy_hold_return_pct)}</td>
+        <td class="${rc(m.excess_return_pct)}">${fret(m.excess_return_pct)}</td>
+        <td class="c-pos">${fret(m.max_drawdown_pct)}</td>
+        <td>${m.trade_count ?? 0}</td><td>${fn(m.win_rate_pct,1,'%')}</td><td>${fn(m.avg_holding_days,1,'天')}</td>
+      </tr>`;}).join('')}</tbody></table>` : '<div style="color:var(--t3);font-family:var(--mono);font-size:11px">暂无成功结果</div>';
+
+  const labels = rows.map(r=>r.code);
+  const strategy = rows.map(r=>r.metrics?.total_return_pct || 0);
+  const hold = rows.map(r=>r.metrics?.buy_hold_return_pct || 0);
+  if (charts.regC) { charts.regC.destroy(); delete charts.regC; }
+  charts.regC = mkChart('regC', 'bar', labels, [
+    {label:'策略收益%', data:strategy, backgroundColor:'rgba(61,144,245,.55)', borderColor:'#3d90f5', borderWidth:1},
+    {label:'买入持有%', data:hold, backgroundColor:'rgba(243,156,18,.45)', borderColor:'#f39c12', borderWidth:1},
+  ], {y:{ticks:{callback:v=>v.toFixed(0)+'%'}}});
+
+  if (res.failures?.length) {
+    document.getElementById('regStatus').textContent += `；失败代码：${res.failures.slice(0,8).map(x=>x.code).join(', ')}`;
+  }
+}
+
+
+// ═══════════════════════════════════════════════
 // WATCHLIST
 // ═══════════════════════════════════════════════
 function buildWL() {
@@ -1680,12 +1800,13 @@ function manualUpd() {
 // ═══════════════════════════════════════════════
 function goTab(el, tab) {
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on')); el.classList.add('on');
-  ['ov','tech','val','quant','ind','cmp'].forEach(t=>{
+  ['ov','tech','val','quant','ind','cmp','reg'].forEach(t=>{
     const e=document.getElementById('t-'+t); if(e) e.style.display=t===tab?'':'none';
   });
   curTab=tab;
   // Compare tab doesn't need activeData - it manages its own state
   if (tab==='cmp') { renderCmp(); return; }
+  if (tab==='reg') return;
   if (!activeData) return;
   const item=wl[activeIdx];
   setLoad(true);

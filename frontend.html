@@ -664,9 +664,14 @@ TUSHARE_TOKEN=你的token python main.py</div>
 // ═══════════════════════════════════════════════
 const bootParams = new URLSearchParams(location.search);
 const queryApi = bootParams.get('api');
-const configuredApi = queryApi || localStorage.getItem('api') || window.OMNIQUANT_API || 'http://localhost:8000';
+const injectedPublicApi = '__OMNIQUANT_PUBLIC_API__';
+const publicApi = injectedPublicApi.startsWith('__') ? 'https://omniquant-api.onrender.com' : injectedPublicApi;
+const isGithubPages = location.hostname.endsWith('github.io');
+const storedApi = localStorage.getItem('api');
+const storedApiIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(storedApi || '');
+const configuredApi = queryApi || window.OMNIQUANT_API || (isGithubPages && (!storedApi || storedApiIsLocal) ? publicApi : storedApi) || 'http://localhost:8000';
 let API = configuredApi.trim().replace(/\/$/, '');
-if (queryApi) localStorage.setItem('api', API);
+if (queryApi || (isGithubPages && (!storedApi || storedApiIsLocal))) localStorage.setItem('api', API);
 let apiOk = false;
 let curType = 'fund';
 let curRng  = '1y';

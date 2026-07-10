@@ -29,6 +29,25 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Inject public API endpoint
+        env:
+          OMNIQUANT_PUBLIC_API: ${{ vars.OMNIQUANT_PUBLIC_API }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          api = os.getenv("OMNIQUANT_PUBLIC_API", "").rstrip("/")
+          if not api:
+              print("OMNIQUANT_PUBLIC_API is not set; frontend will use its built-in fallback/default API logic.")
+              raise SystemExit(0)
+
+          path = Path("frontend.html")
+          html = path.read_text(encoding="utf-8")
+          path.write_text(html.replace("__OMNIQUANT_PUBLIC_API__", api), encoding="utf-8")
+          print(f"Injected public API endpoint: {api}")
+          PY
+
       - name: Upload static site
         uses: actions/upload-pages-artifact@v3
         with:

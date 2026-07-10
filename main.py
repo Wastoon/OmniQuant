@@ -83,6 +83,12 @@ def get_ds() -> DataSource:
     return _ds
 
 
+def _require_admin(admin_token: Optional[str] = None):
+    expected = os.getenv("OMNIQUANT_ADMIN_TOKEN", "")
+    if expected and admin_token != expected:
+        raise HTTPException(403, "需要有效的管理员令牌")
+
+
 # ── 季度日期工具 ──────────────────────────────────────────────
 
 def last_quarter_end(n: int = 0) -> str:
@@ -953,12 +959,16 @@ def strategy_regression(payload: dict = Body(...)):
 # ─── 缓存管理 ────────────────────────────────────────────────
 
 @app.post("/api/cache/clear")
-def clear_cache(older_than_hours: int = Query(0, description="清除N小时前的缓存，0=全部清除")):
+def clear_cache(
+    older_than_hours: int = Query(0, description="清除N小时前的缓存，0=全部清除"),
+    admin_token: Optional[str] = Query(None, description="公开部署时需要管理员令牌"),
+):
     """
     清除旧缓存
     当数据显示截止日期不正确时（如停留在2025年底），
     请调用此接口或删除 ~/.quant_cache/ 目录后重试。
     """
+    _require_admin(admin_token)
     ds = get_ds()
     n = ds.clear_cache(older_than_hours)
     return {"cleared": n, "message": f"已清除 {n} 个缓存文件，请重新请求数据"}
@@ -979,8 +989,12 @@ def datasource_status():
 
 
 @app.post("/api/datasource/set_token")
-def set_tushare_token(token: str = Query(...)):
+def set_tushare_token(
+    token: str = Query(...),
+    admin_token: Optional[str] = Query(None, description="公开部署时需要管理员令牌"),
+):
     """运行时设置 Tushare Token（无需重启）"""
+    _require_admin(admin_token)
     global _ds
     os.environ["TUSHARE_TOKEN"] = token
     _ds = None  # 强制重新初始化

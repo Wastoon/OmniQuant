@@ -112,9 +112,24 @@ class DataSource:
             self._log["stock_hist"] = "cache"
             return cached
 
+        # 公开部署时浏览器通常只有几十秒等待时间；Tushare/AkShare 在 VPS/隧道环境下
+        # 偶发无超时卡住。股票 K 线先走带 15s 超时和 UA/重试的 EastMoney 直连，
+        # 失败后再降级到 AkShare/Tushare，避免前端出现 AbortSignal timeout。
         try:
-            # 一级：优先使用 Tushare（如果用户提供了 token），避免 AkShare/东方财富偶发断连
-            adapters = [(self.ts, "Tushare"), (self.ak, "AkShare")] if self.ts.available else None
+            if self.em is None:
+                raise RuntimeError(f"EastMoney client unavailable: {_EASTMONEY_IMPORT_ERROR}")
+            df = self.em.kline(code, start, end, adjust=adjust)
+            df = normalize_kline(df)
+            df = DataValidator.validate_kline(df)
+            self._log["stock_hist"] = "eastmoney"
+            self.cache.save(key, df)
+            return df
+        except Exception as e0:
+            logger.warning("EastMoney 股票K线失败，继续尝试 AkShare/Tushare: %s", e0)
+
+        try:
+            # 二级：AkShare 优先；Tushare 放最后，避免 token 可用但接口网络慢时拖垮首屏。
+            adapters = [(self.ak, "AkShare"), (self.ts, "Tushare")] if self.ts.available else None
             df = self._call("stock_hist", code, start, end, adjust=adjust, adapters=adapters)
             df = normalize_kline(df)
             df = DataValidator.validate_kline(df)
@@ -124,11 +139,11 @@ class DataSource:
         except Exception as e1:
             logger.warning("主数据源失败: %s", e1)
 
-            # 二级：EastMoney 兜底
+            # 三级：EastMoney 兜底（保留一次重试，兼容首次短暂失败）
             try:
                 if self.em is None:
                     raise RuntimeError(f"EastMoney client unavailable: {_EASTMONEY_IMPORT_ERROR}")
-                df = self.em.kline(code, start, end)
+                df = self.em.kline(code, start, end, adjust=adjust)
                 df = DataValidator.validate_kline(df)
                 self._log["stock_hist"] = "eastmoney"
                 self.cache.save(key, df)

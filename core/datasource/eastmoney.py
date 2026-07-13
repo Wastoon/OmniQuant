@@ -30,13 +30,14 @@ class EastMoneyClient:
         self.session = RetrySession()
         self.limiter = RateLimiter()
 
-    def kline(self, code: str, start: str, end: str) -> pd.DataFrame:
+    def kline(self, code: str, start: str, end: str, adjust: str = "") -> pd.DataFrame:
         secid = MarketResolver.secid(code)
+        fqt = {"": "0", None: "0", "qfq": "1", "hfq": "2"}.get(adjust, "0")
 
         params = {
             "secid":   secid,
             "klt":     "101",
-            "fqt":     "1",
+            "fqt":     fqt,
             # BUG FIX: 格式化为 YYYYMMDD
             "beg":     _fmt_date(start),
             "end":     _fmt_date(end),

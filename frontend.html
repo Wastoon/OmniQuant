@@ -665,13 +665,14 @@ TUSHARE_TOKEN=你的token python main.py</div>
 const bootParams = new URLSearchParams(location.search);
 const queryApi = bootParams.get('api');
 const injectedPublicApi = '__OMNIQUANT_PUBLIC_API__';
-const publicApi = injectedPublicApi.startsWith('__') ? 'https://omniquant-api.onrender.com' : injectedPublicApi;
+const publicApi = injectedPublicApi.startsWith('__') ? 'https://constitute-pockets-positioning-nato.trycloudflare.com' : injectedPublicApi;
 const isGithubPages = location.hostname.endsWith('github.io');
 const storedApi = localStorage.getItem('api');
 const storedApiIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(storedApi || '');
-const configuredApi = queryApi || window.OMNIQUANT_API || (isGithubPages && (!storedApi || storedApiIsLocal) ? publicApi : storedApi) || 'http://localhost:8000';
+const storedApiIsLegacyPublic = /^https:\/\/omniquant-api\.onrender\.com\/?$/i.test(storedApi || '');
+const configuredApi = queryApi || window.OMNIQUANT_API || (isGithubPages && (!storedApi || storedApiIsLocal || storedApiIsLegacyPublic) ? publicApi : storedApi) || 'http://localhost:8000';
 let API = configuredApi.trim().replace(/\/$/, '');
-if (queryApi || (isGithubPages && (!storedApi || storedApiIsLocal))) localStorage.setItem('api', API);
+if (queryApi || (isGithubPages && (!storedApi || storedApiIsLocal || storedApiIsLegacyPublic))) localStorage.setItem('api', API);
 let apiOk = false;
 let curType = 'fund';
 let curRng  = '1y';
@@ -735,7 +736,7 @@ async function checkApi() {
   const el = document.getElementById('apiSt');
   el.textContent = 'API: 检测...'; el.className = 'api-st chk';
   try {
-    const r = await fetch(API + '/', {signal: AbortSignal.timeout(4000)});
+    const r = await fetch(API + '/', {signal: AbortSignal.timeout(30000)});
     if (r.ok) {
       apiOk = true;
       const d = await r.json();
@@ -751,10 +752,10 @@ async function checkApi() {
   return false;
 }
 
-async function get(path) {
+async function get(path, timeout=120000) {
   if (!apiOk) { showErr('后端未连接，请点击右上角 "API" 按钮配置。'); return null; }
   try {
-    const r = await fetch(API + path, {signal: AbortSignal.timeout(35000)});
+    const r = await fetch(API + path, {signal: AbortSignal.timeout(timeout)});
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
     return await r.json();
   } catch(e) { showErr(`请求失败: ${e.message}`); return null; }
@@ -798,7 +799,9 @@ async function loadData() {
     d = await get(`/api/fund/${item.code}?period=${encodeURIComponent(rnMap[curRng]||'成立来')}`);
   } else {
     const yMap = {'1y':1,'3y':3,'5y':5,'all':8};
-    d = await get(`/api/stock/${item.code}?years=${yMap[curRng]||3}&include_financial=true`);
+    // 公开隧道/免费 Cloudflare Tunnel 下，完整财务因子会触发多次 AkShare/Tushare 请求，
+    // 首屏很容易超过浏览器等待时间；首屏先加载行情/估值/技术面，避免 signal timeout。
+    d = await get(`/api/stock/${item.code}?years=${yMap[curRng]||3}&include_financial=false`, 120000);
   }
 
   if (d) {

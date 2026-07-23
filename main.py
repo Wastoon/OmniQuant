@@ -44,7 +44,10 @@ from core.factors import (
     DEFAULT_WEIGHTS, sf,
 )
 from core.datasource.tools import sanitize_dataframe, clean_for_json
-from core.strategy import generate_trade_advice, calc_trading_ranges, backtest_strategy, calc_ema_trailing_strategy, summarize_strategy_result
+from core.strategy import (
+    generate_trade_advice, calc_trading_ranges, backtest_strategy,
+    calc_ema_trailing_strategy, calc_startup_strategy, summarize_strategy_result,
+)
 
 # ═══════════════════════════════════════════════════════════════
 # 初始化
@@ -579,6 +582,7 @@ def get_stock(
     quant_score = multi_factor_score(fin_factors, valuation, tech_to_use, dd_to_use, weights=w)
     strategy = generate_trade_advice("stock", prices_to_use, dates, tech_to_use, dd_to_use, valuation, quant_score)
     trading_ranges = calc_trading_ranges(prices_to_use, dates)
+    startup_strategy = calc_startup_strategy(hist_qfq_df)
 
     # ── 整合返回 ──
     result = {
@@ -607,6 +611,7 @@ def get_stock(
         "financial_factors": fin_factors,
         "quant_score": quant_score,
         "strategy_advice": strategy,
+        "startup_strategy_qfq": startup_strategy,
         "trading_ranges": trading_ranges,
         "latest": {
             "close": prices[-1], "date": dates[-1],
@@ -779,6 +784,35 @@ def strategy_backtest(
         "backtest": result,
     })
 
+@app.get("/api/strategy/startup/{asset_type}/{code}")
+def strategy_startup(
+    asset_type: str,
+    code: str,
+    years: int = Query(5, ge=1, le=10, description="回测历史年数"),
+    volume_confirm: bool = Query(True, description="是否启用成交量放大确认"),
+):
+    """前复权 MA/ENE/DMA/MACD 启动点策略回测。"""
+    if asset_type != "stock":
+        raise HTTPException(400, "启动点策略目前仅支持 stock")
+
+    ds = get_ds()
+    try:
+        start, end = _years_to_dates(years)
+        df = sanitize_dataframe(ds.stock_hist(code, start, end, adjust="qfq"))
+        result = calc_startup_strategy(df, volume_confirm=volume_confirm)
+        if not result or result.get("error"):
+            raise ValueError(result.get("error", "策略结果为空"))
+    except (DataUnavailableError, ValueError) as e:
+        raise HTTPException(400, str(e))
+
+    return clean_for_json({
+        "code": code,
+        "type": asset_type,
+        "years": years,
+        "adjust": "qfq",
+        "strategy": "qfq_ma_ene_dma_macd_startup",
+        "result": result,
+    })
 
 
 @app.get("/api/strategy/ema_trailing/{asset_type}/{code}")

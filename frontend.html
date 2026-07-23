@@ -353,6 +353,24 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
           <div class="pb" style="padding-bottom:0">
             <div class="cw" style="height:260px;margin-bottom:0"><canvas id="mainC"></canvas></div>
           </div>
+          <div id="startupPanels" style="display:none;padding:0 12px 12px">
+            <div class="pnl" style="margin:0 0 6px">
+              <div class="ph"><span class="pt">ENE 通道 · 启动确认</span></div>
+              <div class="pb"><div class="cw" style="height:150px"><canvas id="startupEneC"></canvas></div></div>
+            </div>
+            <div class="pnl" style="margin:0 0 6px">
+              <div class="ph"><span class="pt">DMA · DDD / AMA</span></div>
+              <div class="pb"><div class="cw" style="height:150px"><canvas id="startupDmaC"></canvas></div></div>
+            </div>
+            <div class="pnl" style="margin:0 0 6px">
+              <div class="ph"><span class="pt">MACD · DIF / DEA / 柱线</span></div>
+              <div class="pb"><div class="cw" style="height:150px"><canvas id="startupMacdC"></canvas></div></div>
+            </div>
+            <div class="pnl" style="margin:0">
+              <div class="ph"><span class="pt">成交量 · 20日均量</span></div>
+              <div class="pb"><div class="cw" style="height:130px"><canvas id="startupVolumeC"></canvas></div></div>
+            </div>
+          </div>
           <div class="zoom-bar">
             <button class="zoom-btn" onclick="zoomReset()">复位</button>
             <button class="zoom-btn" onclick="zoomWindow(30)">1M</button>
@@ -845,8 +863,40 @@ async function updateMainChartData(startIdx, endIdx) {
   
   let buySignals = null;
   let sellSignals = null;
+  const startupPanels = document.getElementById('startupPanels');
+  if (startupPanels) startupPanels.style.display = 'none';
   
-  if (window._currentTrendType === 'ema_trailing') {
+  if (window._currentTrendType === 'startup') {
+    document.getElementById('lb').classList.add('on');
+    const yMap = {'1y':1,'3y':3,'5y':5,'all':8};
+    const url = `/api/strategy/startup/${item.type}/${item.code}?years=${yMap[curRng]||5}`;
+    const res = await get(url);
+    document.getElementById('lb').classList.remove('on');
+    if (res && res.result && !res.result.error) {
+      d.startup_strategy = res.result;
+    }
+    if (d.startup_strategy) {
+      const indicators = d.startup_strategy.indicators || {};
+      ch = {
+        mid: indicators.ene_mid || [],
+        upper: indicators.ene_upper || [],
+        lower: indicators.ene_lower || [],
+        startup_ma5: indicators.ma5 || [],
+        startup_ma10: indicators.ma10 || [],
+        startup_ma20: indicators.ma20 || [],
+        startup_ma30: indicators.ma30 || []
+      };
+      buySignals = d.startup_strategy.buy_signals;
+      sellSignals = d.startup_strategy.sell_signals;
+      tr = {};
+      if (startupPanels) startupPanels.style.display = 'block';
+      renderStartupPanels(d.startup_strategy);
+      ch.startup_candidates = d.startup_strategy.candidate_signals;
+      ch.startup_ene = d.startup_strategy.ene_signals;
+      ch.startup_dma = d.startup_strategy.dma_signals;
+      ch.startup_macd = d.startup_strategy.macd_signals;
+    }
+  } else if (window._currentTrendType === 'ema_trailing') {
     document.getElementById('lb').classList.add('on');
     const yMap = {'1y':1,'3y':3,'5y':5,'all':8};
     let url = `/api/strategy/ema_trailing/${item.type}/${item.code}?years=${yMap[curRng]||3}&adjust=${window._currentPriceType}`;
@@ -871,6 +921,7 @@ async function updateMainChartData(startIdx, endIdx) {
   } else {
     const pnl = document.getElementById('backtestPnl');
     if (pnl) pnl.remove();
+    destroyStartupPanels();
   }
 
   window._mainPrices = prices;
@@ -891,6 +942,14 @@ async function updateMainChartData(startIdx, endIdx) {
       const s = startIdx;
       const e = endIdx;
       let dsIdx = 5;
+      if (ch.startup_candidates) {
+        for (let i = 0; i < 4; i++) {
+          if (charts.mainC.data.datasets[dsIdx]) {
+            charts.mainC.data.datasets[dsIdx++].data =
+              [ch.startup_candidates, ch.startup_ene, ch.startup_dma, ch.startup_macd][i].slice(s, e + 1);
+          }
+        }
+      }
       if (buySignals) {
         charts.mainC.data.datasets[dsIdx++].data = buySignals.slice(s, e + 1);
       }
@@ -1030,6 +1089,7 @@ function renderOv(d, item) {
     <select id="trendTypeSel" onchange="window._currentTrendType=this.value; updateMainChartData();" style="margin-left: 10px; background: var(--bg2); color: var(--t1); border: 1px solid var(--b1); border-radius: var(--r); outline: none; font-size: 11px; padding: 2px 4px;">
       <option value="sma" ${window._currentTrendType==='sma'?'selected':''}>简单移动平均(SMA) ±20%</option>
       <option value="ema_trailing" ${window._currentTrendType==='ema_trailing'?'selected':''}>指数移动平均(EMA) + 移动止损</option>
+      <option value="startup" ${window._currentTrendType==='startup'?'selected':''}>前复权启动点(MA+ENE+DMA+MACD)</option>
     </select>
   `;
 
@@ -1969,6 +2029,20 @@ function buildMainChart(dates, prices, ch, tr={}, buySignals=null, sellSignals=n
     { label:'参考持仓', data: tr.reference_position||[], yAxisID:'y1', borderColor:'rgba(201,120,95,.85)', backgroundColor:'rgba(201,120,95,.12)', borderWidth:1.6, pointRadius:0, stepped:true, tension:0, fill:true, order:6 },
   ];
 
+  if (ch.startup_ma5) {
+    datasets.push({ label:'MA5', data:ch.startup_ma5, borderColor:'#f39c12', borderWidth:1.5, pointRadius:0, tension:.25, fill:false, order:1 });
+    datasets.push({ label:'MA10', data:ch.startup_ma10, borderColor:'#9b59b6', borderWidth:1.5, pointRadius:0, tension:.25, fill:false, order:1 });
+    datasets.push({ label:'MA20', data:ch.startup_ma20, borderColor:'#1abc9c', borderWidth:1.5, pointRadius:0, tension:.25, fill:false, order:1 });
+    datasets.push({ label:'MA30', data:ch.startup_ma30, borderColor:'#e67e22', borderWidth:1.5, pointRadius:0, tension:.25, fill:false, order:1 });
+  }
+
+  if (ch.startup_candidates) {
+    datasets.push({ label:'MA候选启动点', data: ch.startup_candidates, type:'scatter', backgroundColor:'rgba(155,89,182,1)', borderColor:'#fff', pointStyle:'circle', pointRadius:4, pointHoverRadius:6, order:0 });
+    datasets.push({ label:'ENE确认点', data: ch.startup_ene, type:'scatter', backgroundColor:'rgba(243,156,18,1)', borderColor:'#fff', pointStyle:'rectRot', pointRadius:4, pointHoverRadius:6, order:0 });
+    datasets.push({ label:'DMA确认点', data: ch.startup_dma, type:'scatter', backgroundColor:'rgba(61,144,245,1)', borderColor:'#fff', pointStyle:'triangle', pointRadius:4, pointHoverRadius:6, order:0 });
+    datasets.push({ label:'MACD确认点', data: ch.startup_macd, type:'scatter', backgroundColor:'rgba(231,76,60,1)', borderColor:'#fff', pointStyle:'star', pointRadius:5, pointHoverRadius:7, order:0 });
+  }
+
   if (buySignals) {
     datasets.push({ label:'买入', data: buySignals, type: 'scatter', backgroundColor: 'rgba(231,76,60,1)', borderColor: 'rgba(255,255,255,0.5)', borderWidth: 1, pointStyle: 'triangle', pointRadius: 8, pointHoverRadius: 10, order: 0 });
   }
@@ -2045,6 +2119,20 @@ function setMainWindow(startIdx, endIdx, animate) {
   }
   
   let dsIdx = 5;
+  if (ch.startup_ma5) {
+    for (let i = 0; i < 4; i++) {
+      if (chart.data.datasets[dsIdx]) {
+        chart.data.datasets[dsIdx++].data =
+          [ch.startup_ma5, ch.startup_ma10, ch.startup_ma20, ch.startup_ma30][i].slice(s, e + 1);
+      }
+    }
+  }
+  if (ch.startup_candidates) {
+    for (let i = 0; i < 4; i++) {
+      if (chart.data.datasets[dsIdx]) chart.data.datasets[dsIdx++].data =
+        [ch.startup_candidates, ch.startup_ene, ch.startup_dma, ch.startup_macd][i].slice(s, e + 1);
+    }
+  }
   if (buySignals) {
     chart.data.datasets[dsIdx++].data = buySignals.slice(s, e + 1);
   }
@@ -2090,6 +2178,57 @@ function handleMainHover(evt, chart) {
 
   const rect = evt.native.target.getBoundingClientRect();
   TT.show(rect.left + xPos, rect.top + evt.native.offsetY, labels[idx] || '', items);
+}
+
+function destroyStartupPanels() {
+  ['startupEneC','startupDmaC','startupMacdC','startupVolumeC'].forEach(id => dC(id));
+}
+
+function renderStartupPanels(strategy) {
+  const dates = strategy.dates || [];
+  const ind = strategy.indicators || {};
+  const point = (values, color, radius=0) => ({
+    data: values || [], borderColor: color, backgroundColor: color,
+    borderWidth: 1.5, pointRadius: radius, pointHoverRadius: 4,
+    tension: .25, fill: false
+  });
+  const markers = (values, color, label) => ({
+    label, data: values || [], type: 'scatter',
+    backgroundColor: color, borderColor: color, pointStyle: 'triangle',
+    pointRadius: 5, pointHoverRadius: 7, showLine: false
+  });
+
+  destroyStartupPanels();
+  charts.startupEneC = mkChart('startupEneC', 'line', dates, [
+    point(ind.ene_upper, 'rgba(231,76,60,.7)'),
+    point(ind.ene_mid, '#f39c12'),
+    point(ind.ene_lower, 'rgba(46,204,113,.7)'),
+    point(ind.close, '#3d90f5'),
+    markers(strategy.candidate_signals, '#9b59b6', 'MA候选点'),
+    markers(strategy.ene_signals, '#f39c12', 'ENE确认')
+  ], {}, true);
+  charts.startupDmaC = mkChart('startupDmaC', 'line', dates, [
+    point(ind.dma_ddd, '#3d90f5'),
+    point(ind.dma_ama, '#f39c12'),
+    markers(strategy.dma_signals, '#e74c3c', 'DMA确认')
+  ], {}, true);
+  const macd = ind.macd_hist || [];
+  charts.startupMacdC = mkChart('startupMacdC', 'bar', dates, [
+    {label:'MACD柱', data:macd, type:'bar',
+      backgroundColor:macd.map(v => v == null ? 'transparent' : v >= 0 ? 'rgba(46,204,113,.7)' : 'rgba(231,76,60,.7)'),
+      borderRadius:1, borderSkipped:false},
+    point(ind.macd_dif, '#3d90f5'),
+    point(ind.macd_dea, '#f39c12'),
+    markers(strategy.macd_signals, '#e74c3c', 'MACD确认')
+  ], {}, true);
+  const volume = ind.volume || [];
+  charts.startupVolumeC = mkChart('startupVolumeC', 'bar', dates, [
+    {label:'成交量', data:volume, backgroundColor:volume.map((v, i) => {
+      const close = ind.close || [];
+      return i > 0 && close[i] >= close[i - 1] ? 'rgba(231,76,60,.65)' : 'rgba(46,204,113,.65)';
+    }), borderSkipped:false},
+    point(ind.volume_ma20, '#f39c12')
+  ], {}, true);
 }
 
 // ── Zoom callbacks ────────────────────────────

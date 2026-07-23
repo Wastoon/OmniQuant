@@ -4,7 +4,13 @@ import numpy as np
 import pandas as pd
 
 from core.factors import calc_drawdown, calc_technical
-from core.strategy import backtest_strategy, calc_ema_trailing_strategy, generate_trade_advice, summarize_strategy_result
+from core.strategy import (
+    backtest_strategy,
+    calc_ema_trailing_strategy,
+    calc_startup_strategy,
+    generate_trade_advice,
+    summarize_strategy_result,
+)
 
 
 class StrategyAdviceTest(unittest.TestCase):
@@ -200,6 +206,58 @@ class EmaTrailingStrategyTest(unittest.TestCase):
         self.assertIn("buy_hold_return_pct", summary)
         self.assertIn("max_drawdown_pct", summary)
         self.assertGreaterEqual(summary["trade_count"], 1)
+
+
+class StartupStrategyTest(unittest.TestCase):
+    def test_startup_strategy_returns_qfq_indicators_and_signal_layers(self):
+        prices = np.concatenate([
+            np.linspace(10, 12, 70),
+            np.linspace(12, 10.8, 20),
+            np.linspace(10.8, 15, 80),
+        ])
+        df = pd.DataFrame({
+            "date": pd.date_range("2024-01-01", periods=len(prices), freq="D"),
+            "close": prices,
+            "volume": np.full(len(prices), 1000.0),
+        })
+
+        result = calc_startup_strategy(df, volume_confirm=False)
+
+        self.assertEqual(result["method"], "qfq_ma_ene_dma_macd_startup")
+        self.assertEqual(len(result["buy_signals"]), len(prices))
+        self.assertEqual(len(result["sell_signals"]), len(prices))
+        self.assertEqual(len(result["equity_curve"]), len(prices))
+        for name in ("ma5", "ma10", "ma20", "ma30", "ene_mid", "ene_upper",
+                     "ene_lower", "dma_ddd", "dma_ama", "macd_dif",
+                     "macd_dea", "macd_hist"):
+            self.assertEqual(len(result["indicators"][name]), len(prices))
+
+    def test_startup_strategy_uses_dma_definition_and_reports_sell_reason(self):
+        prices = np.concatenate([
+            np.linspace(10, 14, 100),
+            np.linspace(14, 12.2, 35),
+        ])
+        df = pd.DataFrame({
+            "date": pd.date_range("2024-01-01", periods=len(prices), freq="D"),
+            "close": prices,
+            "volume": np.full(len(prices), 1000.0),
+        })
+
+        result = calc_startup_strategy(
+            df,
+            volume_confirm=False,
+            trailing_stop_pct=0.03,
+            confirmation_window=30,
+        )
+        indicators = result["indicators"]
+        for index in (60, 90, 120):
+            expected = (
+                pd.Series(prices).rolling(10).mean().iloc[index]
+                - pd.Series(prices).rolling(50).mean().iloc[index]
+            )
+            self.assertAlmostEqual(indicators["dma_ddd"][index], expected, places=5)
+        sells = [trade for trade in result["trades"] if trade["action"] == "sell"]
+        self.assertTrue(all(trade.get("reason") for trade in sells))
 
 
 if __name__ == "__main__":

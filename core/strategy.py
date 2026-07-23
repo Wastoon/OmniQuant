@@ -255,6 +255,230 @@ def calc_trading_ranges(
     }
 
 
+def calc_startup_strategy(
+    df: pd.DataFrame,
+    initial_cash: float = 100000.0,
+    ene_period: int = 10,
+    ene_upper_pct: float = 11.0,
+    ene_lower_pct: float = 9.0,
+    dma_short: int = 10,
+    dma_long: int = 50,
+    dma_signal: int = 10,
+    confirmation_window: int = 60,
+    volume_multiplier: float = 1.05,
+    volume_confirm: bool = True,
+    stop_loss_pct: float = 0.08,
+    trailing_stop_pct: float = 0.10,
+    fee_rate: float = 0.0003,
+    slippage_rate: float = 0.0005,
+) -> dict:
+    """前复权趋势启动策略：MA 结构 -> ENE -> DMA -> MACD 依次确认。
+
+    df 的 close 应由调用方传入前复权收盘价。该函数只生成信号和一个
+    可复现的单仓位回测，避免把未复权价格与复权指标混用。
+    """
+    if df is None or df.empty or "close" not in df.columns:
+        return {}
+
+    data = df.copy()
+    data["close"] = pd.to_numeric(data["close"], errors="coerce")
+    data = data.dropna(subset=["close"]).reset_index(drop=True)
+    if len(data) < max(60, dma_long + dma_signal):
+        return {"error": f"有效价格数据不足，至少需要 {max(60, dma_long + dma_signal)} 条"}
+
+    close = data["close"].astype(float)
+    volume = pd.to_numeric(
+        data.get("volume", pd.Series(np.nan, index=data.index)), errors="coerce"
+    )
+    dates = data["date"] if "date" in data.columns else pd.Series(data.index, index=data.index)
+
+    def date_str(index):
+        value = dates.iloc[index]
+        return value.strftime("%Y-%m-%d") if hasattr(value, "strftime") else str(value)
+
+    def cross_up(left, right):
+        return (left > right) & (left.shift(1) <= right.shift(1))
+
+    ma5 = close.rolling(5).mean()
+    ma10 = close.rolling(10).mean()
+    ma20 = close.rolling(20).mean()
+    ma30 = close.rolling(30).mean()
+
+    ene_mid = close.rolling(ene_period).mean()
+    ene_upper = ene_mid * (1 + ene_upper_pct / 100)
+    ene_lower = ene_mid * (1 - ene_lower_pct / 100)
+
+    dma_ddd = close.rolling(dma_short).mean() - close.rolling(dma_long).mean()
+    dma_ama = dma_ddd.rolling(dma_signal).mean()
+
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    macd_dif = ema12 - ema26
+    macd_dea = macd_dif.ewm(span=9, adjust=False).mean()
+    macd_hist = (macd_dif - macd_dea) * 2
+
+    volume_ma20 = volume.rolling(20, min_periods=10).mean()
+    volume_ok = (~volume.isna() & ~volume_ma20.isna() &
+                 (volume >= volume_ma20 * volume_multiplier))
+    if not volume_confirm:
+        volume_ok = pd.Series(True, index=close.index)
+
+    # MA20/30 只允许平缓或抬头，并且长均线仍压在短均线之上。
+    slope5 = lambda series: series / series.shift(5) - 1
+    long_ma_ok = (
+        slope5(ma20).fillna(-1) >= -0.002
+    ) & (
+        slope5(ma30).fillna(-1) >= -0.002
+    ) & (ma20 >= ma5) & (ma20 >= ma10) & (ma30 >= ma5) & (ma30 >= ma10)
+    candidate = (
+        cross_up(ma5, ma10)
+        & (ma5 > ma10)
+        & long_ma_ok
+    ).fillna(False)
+
+    ene_cross = (
+        cross_up(close, ene_mid)
+        & (close >= ene_lower)
+        & (close <= ene_upper)
+        & (slope5(ene_mid) >= -0.002)
+    ).fillna(False)
+    dma_cross = cross_up(dma_ddd, dma_ama).fillna(False)
+    macd_cross = (
+        cross_up(macd_dif, macd_dea)
+        & (macd_hist > macd_hist.shift(1))
+    ).fillna(False)
+
+    buy_signals = [None] * len(close)
+    sell_signals = [None] * len(close)
+    stage_series = [0] * len(close)
+    events = []
+    pending_candidate = pending_ene = pending_dma = None
+
+    for i in range(len(close)):
+        if candidate.iloc[i]:
+            pending_candidate = i
+            pending_ene = pending_dma = None
+        if pending_candidate is not None and i - pending_candidate > confirmation_window:
+            pending_candidate = pending_ene = pending_dma = None
+        if pending_candidate is not None:
+            if pending_ene is None and i >= pending_candidate and ene_cross.iloc[i]:
+                pending_ene = i
+            if pending_ene is not None and pending_dma is None and i >= pending_ene and dma_cross.iloc[i]:
+                pending_dma = i
+            if pending_dma is not None and i >= pending_dma and macd_cross.iloc[i]:
+                stage_series[i] = 4
+                events.append({
+                    "index": i, "type": "startup",
+                    "candidate_index": pending_candidate,
+                    "ene_index": pending_ene,
+                    "dma_index": pending_dma,
+                    "macd_index": i,
+                    "volume_confirmed": bool(volume_ok.iloc[i]),
+                })
+                buy_signals[i] = float(close.iloc[i])
+                pending_candidate = pending_ene = pending_dma = None
+        if stage_series[i] == 0:
+            stage_series[i] = (
+                3 if pending_dma is not None else
+                2 if pending_ene is not None else
+                1 if pending_candidate is not None else 0
+            )
+
+    # 生成卖出信号：硬止损优先；正常卖出需要趋势/动能至少两项转弱，
+    # 并用两日确认降低单日噪声。
+    cash = float(initial_cash)
+    shares = 0.0
+    entry_price = None
+    peak_price = None
+    entry_index = None
+    trades = []
+    equity_curve = []
+    weakness_days = 0
+    for i, price in enumerate(close):
+        price = float(price)
+        if buy_signals[i] is not None and shares == 0:
+            buy_price = price * (1 + slippage_rate)
+            spend = cash * 0.90
+            shares = spend * (1 - fee_rate) / buy_price
+            cash -= spend
+            entry_price, peak_price, entry_index = price, price, i
+            trades.append({
+                "index": i, "date": date_str(i), "action": "buy",
+                "price": round(price, 4), "exec_price": round(buy_price, 4),
+                "position_pct": 90.0,
+                "reason": "MA→ENE→DMA→MACD 四阶段确认",
+            })
+        elif shares > 0:
+            peak_price = max(peak_price, price)
+            ma_weak = bool(ma5.iloc[i] < ma10.iloc[i] and close.iloc[i] < ma20.iloc[i])
+            dma_weak = bool(dma_ddd.iloc[i] < dma_ama.iloc[i])
+            macd_weak = bool(macd_dif.iloc[i] < macd_dea.iloc[i] and macd_hist.iloc[i] < 0)
+            structure_weak = bool(
+                (close.iloc[i] < ma30.iloc[i]) or
+                (slope5(ma20).iloc[i] < -0.002 and slope5(ma30).iloc[i] < -0.002)
+            )
+            weakness = sum([ma_weak, dma_weak, macd_weak, structure_weak])
+            weakness_days = weakness_days + 1 if weakness >= 2 else 0
+            hard_stop = price <= entry_price * (1 - stop_loss_pct)
+            trailing_stop = price <= peak_price * (1 - trailing_stop_pct)
+            normal_exit = weakness_days >= 2 or price < ene_lower.iloc[i]
+            reason = "hard_stop" if hard_stop else (
+                "trailing_stop" if trailing_stop else
+                "trend_and_momentum_weak" if normal_exit else None
+            )
+            if reason:
+                sell_price = price * (1 - slippage_rate)
+                cash += shares * sell_price * (1 - fee_rate)
+                trades.append({
+                    "index": i, "date": date_str(i), "action": "sell",
+                    "price": round(price, 4), "exec_price": round(sell_price, 4),
+                    "return_pct": round((sell_price / entry_price - 1) * 100, 2),
+                    "holding_days": i - entry_index, "reason": reason,
+                })
+                sell_signals[i] = price
+                shares = 0.0
+                entry_price = peak_price = entry_index = None
+                weakness_days = 0
+        equity_curve.append(cash + shares * price)
+
+    indicators = {
+        "close": close, "volume": volume, "volume_ma20": volume_ma20,
+        "ma5": ma5, "ma10": ma10, "ma20": ma20, "ma30": ma30,
+        "ene_mid": ene_mid, "ene_upper": ene_upper, "ene_lower": ene_lower,
+        "dma_ddd": dma_ddd, "dma_ama": dma_ama,
+        "macd_dif": macd_dif, "macd_dea": macd_dea, "macd_hist": macd_hist,
+    }
+    serial = lambda series: [round(float(x), 6) if pd.notna(x) else None for x in series]
+    return {
+        "method": "qfq_ma_ene_dma_macd_startup",
+        "params": {
+            "ene_period": ene_period, "ene_upper_pct": ene_upper_pct,
+            "ene_lower_pct": ene_lower_pct, "dma_short": dma_short,
+            "dma_long": dma_long, "dma_signal": dma_signal,
+            "confirmation_window": confirmation_window,
+            "volume_multiplier": volume_multiplier,
+            "volume_confirm": volume_confirm, "stop_loss_pct": stop_loss_pct,
+            "trailing_stop_pct": trailing_stop_pct,
+        },
+        "dates": [date_str(i) for i in range(len(close))],
+        "indicators": {name: serial(series) for name, series in indicators.items()},
+        "events": events,
+        "candidate_signals": [float(close.iloc[i]) if candidate.iloc[i] else None for i in range(len(close))],
+        "ene_signals": [float(close.iloc[i]) if ene_cross.iloc[i] else None for i in range(len(close))],
+        "dma_signals": [float(close.iloc[i]) if dma_cross.iloc[i] else None for i in range(len(close))],
+        "macd_signals": [float(close.iloc[i]) if macd_cross.iloc[i] else None for i in range(len(close))],
+        "stage_series": stage_series,
+        "buy_signals": buy_signals,
+        "sell_signals": sell_signals,
+        "trades": trades,
+        "equity_curve": [round(float(value), 2) for value in equity_curve],
+        "final_equity": round(float(equity_curve[-1]), 2),
+        "total_return_pct": round((equity_curve[-1] / initial_cash - 1) * 100, 2),
+        "latest_stage": stage_series[-1],
+        "latest": {name: _finite(series.iloc[-1]) for name, series in indicators.items()},
+    }
+
+
 def calc_ema_trailing_strategy(
     df: pd.DataFrame,
     initial_cash: float = 100000.0,
